@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@config "../tailwind.config.ts";
+
+:root {
+  --bg-base: #F7F5F0;
+  --bg-surface: #FFFFFF;
+  --bg-hero: linear-gradient(135deg, #2D1B22 0%, #6E433E 35%, #B87B56 70%, #DEAC80 100%);
+  --text-primary: #1C1917;
+  --text-secondary: #78716C;
+  --text-muted: #A8A29E;
+  --border-subtle: #EBE7DF;
+  --accent: #B45F3C;
+  --accent-hover: #9C4F30;
+}
+
+html.dark {
+  --bg-base: #13110E;
+  --bg-surface: #1C1915;
+  --bg-hero: linear-gradient(135deg, #100C0E 0%, #2D1B22 40%, #52312A 80%, #7D4A3D 100%);
+  --text-primary: #F5F2EB;
+  --text-secondary: #A8A29E;
+  --text-muted: #78716C;
+  --border-subtle: #2B2620;
+  --accent: #E08556;
+  --accent-hover: #EFA279;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+/* Hide scrollbar for clean horizontal scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
