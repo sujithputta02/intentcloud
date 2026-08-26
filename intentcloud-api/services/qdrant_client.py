@@ -1,297 +1,744 @@
 """
-Phase 2: Qdrant Vector Database Client
-Embedded Qdrant for hybrid (dense + sparse) vector search.
-Stores documents with metadata: filename, topic_tags, upload_time.
+IntentCloud - Qdrant Hybrid Vector Database Client
+
+Stores:
+    1. Dense semantic vectors (all-MiniLM-L6-v2, 384-dim)
+    2. Sparse universal keyword vectors (deterministic feature hash)
+    3. Chunk/document metadata
+
+Dense:
+    all-MiniLM-L6-v2 -> 384 dimensions
+
+Sparse:
+    deterministic feature-hashed unigram + bigram representation
+
+This module is intentionally domain-independent.
 """
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Payload
+from __future__ import annotations
+
 from typing import Dict, List, Optional
-import logging
 from datetime import datetime
-import json
 from pathlib import Path
+import logging
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    VectorParams,
+    PointStruct,
+    SparseVector,
+    SparseVectorParams,
+    SparseIndexParams,
+)
+
+from services.embeddings import (
+    EMBEDDING_DIM,
+    SPARSE_HASH_DIM,
+    generate_embeddings,
+    generate_query_representation,
+    compute_similarity,
+)
+
 
 logger = logging.getLogger(__name__)
 
-# Configuration
+
+# ---------------------------------------------------------------------------
+# CONFIGURATION
+# ---------------------------------------------------------------------------
+
 QDRANT_PATH = "./qdrant_storage"
 COLLECTION_NAME = "intentcloud_docs"
-VECTOR_DIM = 384  # all-MiniLM-L6-v2 dimension
-MAX_SIMILARITY_FOR_DUPLICATE = 0.95  # Flag as duplicate if similarity >= this
 
-# Create storage directory
-Path(QDRANT_PATH).mkdir(exist_ok=True)
+MAX_SIMILARITY_FOR_DUPLICATE = 0.95
 
+Path(QDRANT_PATH).mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+
+# ---------------------------------------------------------------------------
+# QDRANT MANAGER
+# ---------------------------------------------------------------------------
 
 class QdrantIndexManager:
-    """Manages Qdrant vector index and document storage."""
-    
+    """Persistent embedded Qdrant index for IntentCloud."""
+
     def __init__(self):
-        """Initialize Qdrant embedded client."""
+
         try:
-            logger.info(f"[Qdrant] Initializing embedded client at {QDRANT_PATH}")
-            self.client = QdrantClient(path=QDRANT_PATH)
-            
-            # Create collection if it doesn't exist
+
+            logger.info(
+                "[Qdrant] Initializing embedded client at %s",
+                QDRANT_PATH,
+            )
+
+            self.client = QdrantClient(
+                path=QDRANT_PATH
+            )
+
             self._ensure_collection_exists()
-            
-            logger.info(f"[Qdrant] Client initialized successfully")
-        except Exception as e:
-            logger.error(f"[Qdrant] Initialization failed: {str(e)}")
+
+            logger.info(
+                "[Qdrant] Client initialized successfully"
+            )
+
+        except Exception as exc:
+
+            logger.exception(
+                "[Qdrant] Initialization failed: %s",
+                exc,
+            )
+
             raise
-    
+
+
+    # -----------------------------------------------------------------------
+    # COLLECTION
+    # -----------------------------------------------------------------------
+
     def _ensure_collection_exists(self):
-        """Create collection if it doesn't exist."""
-        try:
-            collections = self.client.get_collections()
-            collection_names = [c.name for c in collections.collections]
-            
-            if COLLECTION_NAME not in collection_names:
-                logger.info(f"[Qdrant] Creating collection: {COLLECTION_NAME}")
-                self.client.create_collection(
-                    collection_name=COLLECTION_NAME,
-                    vectors_config=VectorParams(
-                        size=VECTOR_DIM,
-                        distance=Distance.COSINE
+
+        collections = self.client.get_collections()
+
+        collection_names = [
+            collection.name
+            for collection in collections.collections
+        ]
+
+        if COLLECTION_NAME in collection_names:
+
+            logger.info(
+                "[Qdrant] Collection already exists: %s",
+                COLLECTION_NAME,
+            )
+
+            return
+
+        logger.info(
+            "[Qdrant] Creating hybrid collection: %s",
+            COLLECTION_NAME,
+        )
+
+        self.client.create_collection(
+
+            collection_name=COLLECTION_NAME,
+
+            # Dense vector.
+            vectors_config={
+                "dense": VectorParams(
+                    size=EMBEDDING_DIM,
+                    distance=Distance.COSINE,
+                )
+            },
+
+            # Sparse vector.
+            sparse_vectors_config={
+                "sparse": SparseVectorParams(
+                    index=SparseIndexParams(
+                        on_disk=False
                     )
                 )
-                logger.info(f"[Qdrant] Collection created successfully")
-            else:
-                logger.info(f"[Qdrant] Collection already exists: {COLLECTION_NAME}")
-        except Exception as e:
-            logger.error(f"[Qdrant] Collection creation failed: {str(e)}")
-            raise
-    
+            },
+        )
+
+        logger.info(
+            "[Qdrant] Hybrid collection created"
+        )
+
+
+    # -----------------------------------------------------------------------
+    # HEALTH
+    # -----------------------------------------------------------------------
+
     def health_check(self) -> Dict:
-        """
-        Check Qdrant health status.
-        
-        Returns:
-            Health status dict
-        """
+
         try:
-            info = self.client.get_collection(COLLECTION_NAME)
-            pts = getattr(info, "points_count", getattr(info, "vectors_count", 0))
+
+            info = self.client.get_collection(
+                COLLECTION_NAME
+            )
+
+            points = getattr(
+                info,
+                "points_count",
+                getattr(
+                    info,
+                    "vectors_count",
+                    0,
+                ),
+            )
+
             return {
                 "status": "healthy",
                 "collection": COLLECTION_NAME,
-                "vectors_count": pts,
-                "points_count": pts
+                "points_count": points,
+                "embedding_dim": EMBEDDING_DIM,
+                "sparse_hash_dim": SPARSE_HASH_DIM,
             }
-        except Exception as e:
-            logger.error(f"[Qdrant] Health check failed: {str(e)}")
+
+        except Exception as exc:
+
+            logger.error(
+                "[Qdrant] Health check failed: %s",
+                exc,
+            )
+
             return {
                 "status": "unhealthy",
-                "error": str(e)
+                "error": str(exc),
             }
-    
+
+
+    # -----------------------------------------------------------------------
+    # DUPLICATE DETECTION
+    # -----------------------------------------------------------------------
+
+    def _check_duplicate(
+        self,
+        document_embedding: List[float],
+        file_id: str,
+    ) -> Optional[Dict]:
+
+        """
+        Compare the COMPLETE document representation rather than the first
+        sentence.
+
+        Returns:
+            Matching point metadata if duplicate detected.
+            None otherwise.
+        """
+
+        try:
+
+            results = self.client.search(
+                collection_name=COLLECTION_NAME,
+
+                query_vector=(
+                    "dense",
+                    document_embedding,
+                ),
+
+                limit=5,
+                score_threshold=(
+                    MAX_SIMILARITY_FOR_DUPLICATE
+                ),
+            )
+
+            for result in results:
+
+                existing_file_id = (
+                    result.payload.get("file_id")
+                    if result.payload
+                    else None
+                )
+
+                if (
+                    existing_file_id
+                    and existing_file_id != file_id
+                    and result.score >=
+                    MAX_SIMILARITY_FOR_DUPLICATE
+                ):
+
+                    return {
+                        "file_id": existing_file_id,
+                        "filename": result.payload.get(
+                            "filename"
+                        ),
+                        "score": float(
+                            result.score
+                        ),
+                    }
+
+            return None
+
+        except Exception as exc:
+
+            logger.warning(
+                "[Duplicate Check] Failed: %s",
+                exc,
+            )
+
+            # Do not block uploads because duplicate detection failed.
+            return None
+
+
+    # -----------------------------------------------------------------------
+    # UPSERT DOCUMENT
+    # -----------------------------------------------------------------------
+
     def upsert_document(
         self,
         file_id: str,
         filename: str,
         text_content: str,
-        embeddings_data: Dict
-    ) -> bool:
+        file_type: Optional[str] = None,
+        metadata: Optional[Dict] = None,
+    ) -> Dict:
+
         """
-        Upsert document with embeddings into Qdrant.
-        Includes duplicate detection before insertion.
-        
-        Args:
-            file_id: Unique document ID
-            filename: Original filename
-            text_content: Full document text
-            embeddings_data: Output from embeddings.generate_embeddings()
-        
-        Returns:
-            True if successful, False if detected as duplicate
+        Generate universal document representation and store every chunk.
+
+        One uploaded file can produce many Qdrant points.
+
+        Each point contains:
+            dense vector
+            sparse vector
+            file metadata
+            chunk metadata
+            dynamic keywords
         """
-        try:
-            logger.info(f"[Qdrant] Upserting file_id={file_id}, filename={filename}")
-            
-            embeddings = embeddings_data["embeddings"]
-            sentences = embeddings_data["sentences"]
-            
-            if not embeddings or not sentences:
-                logger.warning(f"[Qdrant] No embeddings to upsert for {file_id}")
-                return False
-            
-            # Step 1: Check for duplicates using first embedding
-            if self._check_duplicate(embeddings[0], file_id):
-                logger.warning(f"[Qdrant] File {file_id} detected as duplicate or too similar")
-                return False
-            
-            # Step 2: Create points for Qdrant
-            points = []
-            for idx, (embedding, sentence) in enumerate(zip(embeddings, sentences)):
-                point_id = hash((file_id, idx)) % (2**31)  # Ensure positive int
-                
-                payload = {
-                    "file_id": file_id,
-                    "filename": filename,
-                    "sentence_index": idx,
-                    "sentence_text": sentence,
-                    "upload_time": datetime.utcnow().isoformat(),
-                    "text_preview": sentence[:100]
-                }
-                
-                point = PointStruct(
-                    id=point_id,
-                    vector=embedding,
-                    payload=payload
-                )
-                points.append(point)
-            
-            # Step 3: Upsert to Qdrant
-            logger.info(f"[Qdrant] Upserting {len(points)} vectors...")
-            self.client.upsert(
-                collection_name=COLLECTION_NAME,
-                points=points
+
+        representation = generate_embeddings(
+            text_content
+        )
+
+        chunks = representation["chunks"]
+
+        if not chunks:
+
+            return {
+                "success": False,
+                "reason": "No textual content extracted.",
+                "file_id": file_id,
+            }
+
+
+        # ---------------------------------------------------------------
+        # Duplicate detection on the document-level vector.
+        # ---------------------------------------------------------------
+
+        duplicate = self._check_duplicate(
+            representation["document_embedding"],
+            file_id,
+        )
+
+        if duplicate:
+
+            logger.warning(
+                "[Duplicate] %s matches %s with %.3f",
+                filename,
+                duplicate["filename"],
+                duplicate["score"],
             )
-            
-            logger.info(f"[Qdrant] Successfully upserted {len(points)} vectors")
-            return True
-        
-        except Exception as e:
-            logger.error(f"[Qdrant] Upsert failed: {str(e)}")
-            raise
-    
-    def _check_duplicate(self, embedding: List[float], file_id: str) -> bool:
-        """
-        Check if an embedding is too similar to existing ones (duplicate detection).
-        
-        Args:
-            embedding: Document embedding
-            file_id: Current file ID (to exclude from comparison)
-        
-        Returns:
-            True if detected as duplicate, False otherwise
-        """
-        try:
-            # Search for similar embeddings
-            results = self.client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=embedding,
-                limit=1,
-                score_threshold=MAX_SIMILARITY_FOR_DUPLICATE
+
+            return {
+                "success": False,
+                "duplicate": True,
+                "file_id": file_id,
+                "existing_file": duplicate,
+            }
+
+
+        # ---------------------------------------------------------------
+        # Universal metadata.
+        # ---------------------------------------------------------------
+
+        upload_time = datetime.utcnow().isoformat()
+
+        custom_metadata = metadata or {}
+
+        points: List[PointStruct] = []
+
+        for chunk in chunks:
+
+            chunk_index = chunk["chunk_index"]
+
+            point_id = (
+                f"{file_id}:{chunk_index}"
             )
-            
-            for result in results:
-                # If we found a similar existing point
-                if result.score >= MAX_SIMILARITY_FOR_DUPLICATE:
-                    existing_file_id = result.payload.get("file_id")
-                    if existing_file_id != file_id:
-                        logger.warning(
-                            f"[Duplicate] Similarity {result.score:.3f} with "
-                            f"{existing_file_id} (threshold: {MAX_SIMILARITY_FOR_DUPLICATE})"
-                        )
-                        return True
-            
-            return False
-        except Exception as e:
-            logger.warning(f"[Duplicate Check] Error: {str(e)}, proceeding without check")
-            return False
-    
-    def search(
+
+            sparse_data = chunk[
+                "sparse_vector"
+            ]
+
+            payload = {
+
+                # File identity.
+                "file_id": file_id,
+                "filename": filename,
+                "file_type": file_type,
+
+                # Chunk identity.
+                "chunk_index": chunk_index,
+
+                # Original searchable content.
+                "chunk_text": chunk["text"],
+
+                # Universal dynamic keywords.
+                "keywords": chunk["keywords"],
+
+                # Upload information.
+                "upload_time": upload_time,
+
+                # Optional extractor metadata:
+                # page, slide, sheet, section, etc.
+                **custom_metadata,
+            }
+
+
+            point = PointStruct(
+
+                id=point_id,
+
+                vector={
+
+                    "dense": chunk[
+                        "embedding"
+                    ],
+
+                    "sparse": SparseVector(
+                        indices=sparse_data[
+                            "indices"
+                        ],
+                        values=sparse_data[
+                            "values"
+                        ],
+                    ),
+                },
+
+                payload=payload,
+            )
+
+            points.append(point)
+
+
+        # ---------------------------------------------------------------
+        # Upsert.
+        # ---------------------------------------------------------------
+
+        self.client.upsert(
+
+            collection_name=COLLECTION_NAME,
+
+            points=points,
+        )
+
+        logger.info(
+            "[Qdrant] Stored %d chunks for %s",
+            len(points),
+            filename,
+        )
+
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": filename,
+            "chunk_count": len(points),
+            "document_keywords": representation[
+                "document_keywords"
+            ],
+        }
+
+
+    # -----------------------------------------------------------------------
+    # DENSE SEARCH
+    # -----------------------------------------------------------------------
+
+    def dense_search(
         self,
         query_vector: List[float],
-        top_k: int = 3,
-        score_threshold: float = 0.3
+        top_k: int = 10,
+        score_threshold: float = 0.20,
     ) -> List[Dict]:
+
+        results = self.client.search(
+
+            collection_name=COLLECTION_NAME,
+
+            query_vector=(
+                "dense",
+                query_vector,
+            ),
+
+            limit=top_k,
+
+            score_threshold=score_threshold,
+        )
+
+        return [
+            self._format_result(result)
+            for result in results
+        ]
+
+
+    # -----------------------------------------------------------------------
+    # SPARSE SEARCH
+    # -----------------------------------------------------------------------
+
+    def sparse_search(
+        self,
+        sparse_vector: Dict,
+        top_k: int = 10,
+    ) -> List[Dict]:
+
+        vector = SparseVector(
+
+            indices=sparse_vector[
+                "indices"
+            ],
+
+            values=sparse_vector[
+                "values"
+            ],
+        )
+
+        results = self.client.search(
+
+            collection_name=COLLECTION_NAME,
+
+            query_vector=(
+                "sparse",
+                vector,
+            ),
+
+            limit=top_k,
+        )
+
+        return [
+            self._format_result(result)
+            for result in results
+        ]
+
+
+    # -----------------------------------------------------------------------
+    # HYBRID SEARCH + RRF
+    # -----------------------------------------------------------------------
+
+    def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 3,
+        candidate_k: int = 20,
+    ) -> List[Dict]:
+
         """
-        Dense semantic search in Qdrant.
-        
-        Args:
-            query_vector: Query embedding
-            top_k: Number of results to return
-            score_threshold: Minimum relevance score
-        
-        Returns:
-            List of search results with metadata
+        Hybrid retrieval:
+
+            query
+              ↓
+        dense representation
+              +
+        sparse representation
+              ↓
+        dense search + sparse search
+              ↓
+            RRF
+              ↓
+        final candidates
         """
-        try:
-            logger.info(f"[Qdrant] Searching for top_{top_k}")
-            
-            results = self.client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=query_vector,
-                limit=top_k,
-                score_threshold=score_threshold
+
+        query_representation = (
+            generate_query_representation(
+                query
             )
-            
-            formatted_results = []
-            for result in results:
-                formatted_results.append({
-                    "file_id": result.payload.get("file_id"),
-                    "filename": result.payload.get("filename"),
-                    "sentence_text": result.payload.get("sentence_text"),
-                    "relevance_score": result.score,
-                    "upload_time": result.payload.get("upload_time")
-                })
-            
-            logger.info(f"[Qdrant] Returned {len(formatted_results)} results")
-            return formatted_results
-        
-        except Exception as e:
-            logger.error(f"[Qdrant] Search failed: {str(e)}")
-            return []
-    
+        )
+
+
+        dense_results = self.dense_search(
+
+            query_representation[
+                "embedding"
+            ],
+
+            top_k=candidate_k,
+        )
+
+
+        sparse_results = self.sparse_search(
+
+            query_representation[
+                "sparse_vector"
+            ],
+
+            top_k=candidate_k,
+        )
+
+
+        fused = self._rrf_fusion(
+
+            dense_results,
+
+            sparse_results,
+        )
+
+
+        return fused[:top_k]
+
+
+    # -----------------------------------------------------------------------
+    # RRF
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _rrf_fusion(
+        dense_results: List[Dict],
+        sparse_results: List[Dict],
+        k: int = 60,
+    ) -> List[Dict]:
+
+        """
+        Reciprocal Rank Fusion.
+
+        score(d) = sum(1 / (k + rank))
+        """
+
+        scores: Dict[str, float] = {}
+        documents: Dict[str, Dict] = {}
+
+
+        for rank, result in enumerate(
+            dense_results,
+            start=1,
+        ):
+
+            key = result["chunk_id"]
+
+            scores[key] = (
+                scores.get(key, 0.0)
+                + 1.0 / (k + rank)
+            )
+
+            documents[key] = result
+
+
+        for rank, result in enumerate(
+            sparse_results,
+            start=1,
+        ):
+
+            key = result["chunk_id"]
+
+            scores[key] = (
+                scores.get(key, 0.0)
+                + 1.0 / (k + rank)
+            )
+
+            documents[key] = result
+
+
+        ranked = sorted(
+            scores.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+
+
+        output = []
+
+        for chunk_id, score in ranked:
+
+            item = dict(
+                documents[chunk_id]
+            )
+
+            item["rrf_score"] = score
+
+            output.append(item)
+
+
+        return output
+
+
+    # -----------------------------------------------------------------------
+    # RESULT FORMAT
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _format_result(result) -> Dict:
+
+        payload = result.payload or {}
+
+        return {
+
+            "chunk_id": str(result.id),
+
+            "file_id": payload.get(
+                "file_id"
+            ),
+
+            "filename": payload.get(
+                "filename"
+            ),
+
+            "file_type": payload.get(
+                "file_type"
+            ),
+
+            "chunk_index": payload.get(
+                "chunk_index"
+            ),
+
+            "chunk_text": payload.get(
+                "chunk_text"
+            ),
+
+            "keywords": payload.get(
+                "keywords",
+                [],
+            ),
+
+            "upload_time": payload.get(
+                "upload_time"
+            ),
+
+            "relevance_score": float(
+                result.score
+            ),
+        }
+
+
+    # -----------------------------------------------------------------------
+    # COLLECTION STATS
+    # -----------------------------------------------------------------------
+
     def get_collection_stats(self) -> Dict:
-        """
-        Get collection statistics for dashboard.
-        
-        Returns:
-            Stats dict with file count, topics, etc.
-        """
+
         try:
-            info = self.client.get_collection(COLLECTION_NAME)
-            
-            # Get unique file IDs (approximate)
-            scroll_results = self.client.scroll(
-                collection_name=COLLECTION_NAME,
-                limit=1000
+
+            info = self.client.get_collection(
+                COLLECTION_NAME
             )
-            
-            unique_files = set()
-            for point in scroll_results[0]:
-                unique_files.add(point.payload.get("file_id"))
-            
-            pts = getattr(info, "points_count", getattr(info, "vectors_count", 0))
+
+            points = getattr(
+                info,
+                "points_count",
+                getattr(
+                    info,
+                    "vectors_count",
+                    0,
+                ),
+            )
+
             return {
-                "total_vectors": pts,
-                "total_files": len(unique_files),
+
+                "status": "ready",
+
                 "collection": COLLECTION_NAME,
-                "vector_dim": VECTOR_DIM,
-                "status": "ready"
+
+                "total_vectors": points,
+
+                "embedding_dim": EMBEDDING_DIM,
+
+                "sparse_hash_dim": SPARSE_HASH_DIM,
+
             }
-        
-        except Exception as e:
-            logger.error(f"[Qdrant] Stats retrieval failed: {str(e)}")
+
+        except Exception as exc:
+
+            logger.error(
+                "[Qdrant] Stats failed: %s",
+                exc,
+            )
+
             return {
+
+                "status": "error",
+
                 "total_vectors": 0,
-                "total_files": 0,
-                "error": str(e)
+
+                "error": str(exc),
+
             }
-    
-    def get_file_path(self, file_id: str) -> Optional[str]:
-        """
-        Get file path from file_id.
-        Used for download endpoint.
-        
-        Args:
-            file_id: Document ID
-        
-        Returns:
-            File path or None
-        """
-        try:
-            uploads_dir = Path("./uploads")
-            # Try common extensions
-            for ext in [".pdf", ".docx", ".txt"]:
-                file_path = uploads_dir / f"{file_id}{ext}"
-                if file_path.exists():
-                    return str(file_path)
-            return None
-        except Exception as e:
-            logger.error(f"[Qdrant] Get file path failed: {str(e)}")
-            return None

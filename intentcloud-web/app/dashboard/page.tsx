@@ -8,6 +8,7 @@ interface StatsResponse {
   collection: string;
   vector_dim: number;
   status: string;
+  topic_counts?: Record<string, number>;
 }
 
 interface UploadedFile {
@@ -116,20 +117,31 @@ export default function DashboardPage() {
     }
   };
 
-  const topicCategories = [
-    { name: "Kafka & Microservices", icon: "⚡", keyword: "kafka" },
-    { name: "Thesis Drafts", icon: "🎓", keyword: "thesis" },
-    { name: "Business Reports", icon: "📊", keyword: "report" },
-    { name: "Project Docs", icon: "📁", keyword: "doc" },
-    { name: "General Research", icon: "📚", keyword: "" },
-  ];
+  // Topic icon map — only cosmetic; counts come from the backend /stats
+  // endpoint (topic_counts), which is sourced from real Qdrant topic_tags
+  // metadata (PRD §7.7 Week-3), not client-side filename substring matching.
+  const TOPIC_ICONS: Record<string, string> = {
+    Kafka: "⚡",
+    Microservices: "⚡",
+    "Thesis & Research": "🎓",
+    "Machine Learning": "🤖",
+    "Information Retrieval": "🔎",
+    "Business Reports": "📊",
+    "Project Docs": "📁",
+    "Cloud & DevOps": "☁️",
+    "General Research": "📚",
+  };
 
-  const topicsWithCounts = topicCategories.map((topic) => {
-    const count = files.filter((f) =>
-      topic.keyword ? f.name.toLowerCase().includes(topic.keyword) : true
-    ).length;
-    return { ...topic, count: topic.keyword ? count : files.length };
-  });
+  // Build the topic cloud from the backend topic_counts if present; fall back
+  // to an empty list when no files are indexed yet (states are still loading
+  // or no uploads have been processed).
+  const topicsWithCounts = stats?.topic_counts
+    ? Object.entries(stats.topic_counts).map(([name, count]) => ({
+        name,
+        icon: TOPIC_ICONS[name] ?? "📎",
+        count,
+      }))
+    : [];
 
   const filteredFiles = files.filter((f) => {
     if (activeFilter === "All") return true;
@@ -173,7 +185,11 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex gap-4 overflow-x-auto pb-3 snap-x scrollbar-none">
-            {topicsWithCounts.map((t) => (
+            {topicsWithCounts.length === 0 ? (
+              <div className="w-full text-sm text-[var(--text-secondary)] py-4">
+                No topics yet — upload documents to populate the topic cloud.
+              </div>
+            ) : (topicsWithCounts.map((t) => (
               <div
                 key={t.name}
                 className="w-64 p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] snap-start shrink-0 flex flex-col justify-between space-y-3 shadow-card"
@@ -193,7 +209,8 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
