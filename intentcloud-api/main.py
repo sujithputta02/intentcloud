@@ -151,7 +151,7 @@ async def upload_document(
         with open(file_path, "wb") as f:
             f.write(contents)
         
-        # Save metadata immediately
+        # Save metadata immediately (topic_tags filled in after extraction).
         metadata = load_metadata()
         metadata[file_id] = {
             "file_id": file_id,
@@ -159,7 +159,8 @@ async def upload_document(
             "size_bytes": len(contents),
             "upload_time": time.time(),
             "extension": file_ext.replace(".", "").lower(),
-            "file_path": str(file_path)
+            "file_path": str(file_path),
+            "topic_tags": []
         }
         save_metadata(metadata)
         
@@ -201,15 +202,31 @@ async def process_document_pipeline(file_id: str, file_path: str, filename: str)
             return
         
         logger.info(f"[Step 1] Extracted {len(text_content)} chars")
-        embeddings_data = generate_embeddings(text_content)
         
-        logger.info(f"[Step 2] Generated {len(embeddings_data['embeddings'])} embeddings")
-        qdrant_manager.upsert_document(
+        # Generate universal embeddings (dense + sparse + keywords)
+        representation = generate_embeddings(text_content)
+        chunk_count = representation["chunk_count"]
+        logger.info(f"[Step 2] Generated {chunk_count} chunks with dense + sparse vectors")
+        
+        # Upsert to Qdrant (includes duplicate detection at document level)
+        result = qdrant_manager.upsert_document(
             file_id=file_id,
             filename=filename,
             text_content=text_content,
-            embeddings_data=embeddings_data
+            file_type=Path(file_path).suffix.lower().replace(".", "")
         )
+        
+        # Update metadata with results
+        metadata = load_metadata()
+        if file_id in metadata:
+            if result["success"]:
+                metadata[file_id]["topic_tags"] = representation["document_keywords"]
+                metadata[file_id]["chunk_count"] = chunk_count
+                logger.info(f"[Step 3] Updated metadata: keywords={representation['document_keywords']}")
+            elif result.get("duplicate"):
+                metadata[file_id]["status"] = "duplicate"
+                logger.warning(f"[Step 3] File marked as duplicate of {result['existing_file']['file_id']}")
+            save_metadata(metadata)
         
         logger.info(f"[Pipeline] Complete for file_id={file_id}")
     except Exception as e:
