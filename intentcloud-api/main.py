@@ -91,7 +91,14 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3010", "http://localhost:3001", "*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3010",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3010",
+        "http://127.0.0.1:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -318,7 +325,7 @@ async def search_documents(
                 "confidence": 0.5
             }
         
-        conf_threshold = threshold if threshold is not None else 0.40
+        conf_threshold = threshold if threshold is not None else 0.35
         
         search_output = execute_search_pipeline(
             query=query,

@@ -19,7 +19,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.embeddings import generate_query_representation
-from services.reranker import get_reranker, DEFAULT_CONFIDENCE_THRESHOLD
+from services.reranker import get_reranker, get_reranker_device, DEFAULT_CONFIDENCE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +290,7 @@ def execute_search_pipeline(
                 "sparse_candidates": len(sparse_candidates),
                 "fused_candidates": len(fused_candidates),
                 "reranked_count": len(final_results),
-                "device": get_reranker()._device,
+                "device": get_reranker_device(),
             },
         }
 
