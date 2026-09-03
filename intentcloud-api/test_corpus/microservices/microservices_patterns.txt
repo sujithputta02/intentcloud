@@ -1,0 +1,14 @@
+Microservices Design Patterns
+
+This reference describes core patterns for decomposing monolithic applications into independently deployable services.
+
+Patterns covered:
+- API Gateway: single entry point for routing, auth, and rate limiting
+- Circuit Breaker: prevent cascade failures when downstream services are unhealthy
+- Saga: coordinate distributed transactions across services without two-phase commit
+- Strangler Fig: incrementally replace monolith functionality with microservices
+- Database per Service: each service owns its data store to enforce bounded contexts
+
+Service boundaries should align with business capabilities, not technical layers. Avoid chatty synchronous calls between services; prefer async messaging where possible.
+
+Observability requires distributed tracing (OpenTelemetry), centralized logging, and per-service SLO dashboards.

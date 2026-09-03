@@ -1,0 +1,9 @@
+Kafka Stream Processing Overview
+
+Apache Kafka Streams is a client library for building real-time stream processing applications. It provides primitives for map, filter, aggregate, and join operations over unbounded event streams.
+
+Stream processing topologies connect source topics through processors to sink topics. State stores backed by RocksDB enable windowed aggregations and interactive queries.
+
+Common patterns include event sourcing, CQRS materialized views, and fraud detection pipelines. Exactly-once semantics are supported when combined with transactional producers.
+
+Operational considerations: rebalance latency during consumer group changes, state store disk usage, and processing guarantee configuration (at-least-once vs exactly-once).

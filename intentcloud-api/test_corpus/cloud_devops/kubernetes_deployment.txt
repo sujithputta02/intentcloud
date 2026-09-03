@@ -1,0 +1,20 @@
+Kubernetes Deployment Guide
+
+Deploying containerized applications on Kubernetes clusters.
+
+Prerequisites: kubectl configured, container registry access, Helm (optional).
+
+Steps:
+1. Build and push Docker image with semantic version tag
+2. Write Deployment manifest: replicas, resource limits, liveness/readiness probes
+3. Expose via Service (ClusterIP internal, LoadBalancer external)
+4. Configure Ingress for TLS termination and path routing
+5. Use ConfigMaps for non-secret config, Secrets for credentials
+
+Production checklist:
+- Pod disruption budgets and horizontal pod autoscaling
+- Network policies restricting inter-namespace traffic
+- PersistentVolumeClaims for stateful components (e.g., Qdrant on Pi)
+- Backup strategy for etcd and application data volumes
+
+IntentCloud edge deployment (Week 6+) targets single-node k3s on Raspberry Pi 5 with 8GB RAM.

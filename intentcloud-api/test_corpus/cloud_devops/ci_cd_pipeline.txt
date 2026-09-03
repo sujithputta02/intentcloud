@@ -1,0 +1,17 @@
+CI/CD Pipeline Documentation
+
+Continuous integration and delivery pipeline for IntentCloud monorepo.
+
+Pipeline stages:
+1. Lint — ESLint (frontend), flake8/black (backend)
+2. Type check — TypeScript strict mode, Python import verification
+3. Unit tests — pytest for services, component tests for Next.js
+4. Integration — RUN_WEEK4_REGRESSION.sh against running API
+5. Build — Docker images for intentcloud-api and intentcloud-web
+6. Deploy — manual promote to staging; automated to Pi edge (Week 6)
+
+GitHub Actions workflow triggers on pull_request to main. Secrets: none required for local CI; registry credentials for deploy stage.
+
+Regression gate: all 15 ground-truth queries must return expected files in top-5 before merge to main during Week 4 Review-1 period.
+
+Rollback: keep previous container image tag; kubectl rollout undo for Kubernetes deployments.

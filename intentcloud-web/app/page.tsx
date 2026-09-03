@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
+import { TOPIC_DEFINITIONS, classifyFile, countFilesByTopic } from "@/lib/topics";
+import { API_URL } from "@/lib/api";
 
 interface UploadedFile {
   file_id: string;
@@ -9,6 +11,7 @@ interface UploadedFile {
   size_bytes: number;
   modified: number;
   extension: string;
+  topic_tags?: string[];
 }
 
 interface StatsResponse {
@@ -22,11 +25,22 @@ interface StatsResponse {
 interface SearchResult {
   file_id: string;
   filename: string;
+  file_type?: string;
   sentence_text: string;
+  matched_snippet?: string;
   relevance_score: number;
   rank: number;
   explanation: string;
   relevance_percentage: number;
+}
+
+interface SearchResponse {
+  query: string;
+  search_mode: string;
+  is_confident_match: boolean;
+  confidence_message: string;
+  results: SearchResult[];
+  count: number;
 }
 
 interface TopicCluster {
@@ -42,17 +56,16 @@ export default function Home() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string>("All files");
+  const [activeTopicFilter, setActiveTopicFilter] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -102,17 +115,17 @@ export default function Home() {
     setIsSearching(true);
     try {
       const res = await fetch(
-        `${API_URL}/search?query=${encodeURIComponent(q)}&top_k=6`,
+        `${API_URL}/search?query=${encodeURIComponent(q)}&top_k=3&search_mode=hybrid`,
         { method: "POST" }
       );
       if (res.ok) {
-        const data = await res.json();
-        setSearchResults(data.results || []);
+        const data: SearchResponse = await res.json();
+        setSearchResults(data);
       } else {
-        setSearchResults([]);
+        setSearchResults(null);
       }
     } catch {
-      setSearchResults([]);
+      setSearchResults(null);
     } finally {
       setIsSearching(false);
     }
@@ -123,6 +136,7 @@ export default function Home() {
     setIsUploading(true);
 
     let uploadedCount = 0;
+    let failedCount = 0;
     for (const file of Array.from(e.target.files)) {
       try {
         const formData = new FormData();
@@ -131,15 +145,24 @@ export default function Home() {
           method: "POST",
           body: formData,
         });
-        if (res.ok) uploadedCount++;
+        if (res.ok) {
+          uploadedCount++;
+        } else {
+          failedCount++;
+        }
       } catch (err) {
+        failedCount++;
         console.error(err);
       }
     }
 
     setIsUploading(false);
     setUploadModalOpen(false);
-    showToast(`Uploaded ${uploadedCount} document${uploadedCount > 1 ? "s" : ""} successfully!`);
+    if (uploadedCount > 0) {
+      showToast(`Uploaded ${uploadedCount} document${uploadedCount > 1 ? "s" : ""} successfully!`);
+    } else {
+      showToast("Upload failed. Make sure the backend is running on port 8000.");
+    }
     fetchData();
   };
 
@@ -184,56 +207,26 @@ export default function Home() {
     return `Uploaded ${Math.floor(hours / 24)} days ago`;
   };
 
-  const baseTopics = [
-    {
-      title: "Kafka & Microservices",
-      keyword: "kafka",
-      color: "bg-[#D946EF]",
-      iconColor: "#D946EF",
-    },
-    {
-      title: "Thesis Drafts",
-      keyword: "thesis",
-      color: "bg-[#8B5CF6]",
-      iconColor: "#8B5CF6",
-    },
-    {
-      title: "ML Models & AI",
-      keyword: "model",
-      color: "bg-[#EC4899]",
-      iconColor: "#EC4899",
-    },
-    {
-      title: "Business Reports",
-      keyword: "report",
-      color: "bg-[#F59E0B]",
-      iconColor: "#F59E0B",
-    },
-    {
-      title: "Project Docs",
-      keyword: "doc",
-      color: "bg-[#3B82F6]",
-      iconColor: "#3B82F6",
-    },
-  ];
+  const topicCounts = countFilesByTopic(files);
 
-  const dynamicTopicCards: TopicCluster[] = baseTopics.map((topic) => {
-    const count = files.filter((f) =>
-      f.name.toLowerCase().includes(topic.keyword)
-    ).length;
-    return {
-      title: topic.title,
-      filesCount: count,
-      color: topic.color,
-      iconColor: topic.iconColor,
-      keyword: topic.keyword,
-    };
-  });
+  const dynamicTopicCards: TopicCluster[] = TOPIC_DEFINITIONS.map((topic) => ({
+    title: topic.title,
+    filesCount: topicCounts[topic.title] ?? 0,
+    color: topic.color,
+    iconColor: topic.iconColor,
+    keyword: topic.title,
+  }));
 
   const totalIndexedTopics = dynamicTopicCards.filter((t) => t.filesCount > 0).length;
 
   const displayFiles = files.filter((f) => {
     const ext = f.extension?.toLowerCase() || "";
+
+    if (activeTopicFilter) {
+      const fileTopic = classifyFile(f.name, f.topic_tags ?? []);
+      if (fileTopic !== activeTopicFilter) return false;
+    }
+
     if (activeFilter === "All files") return true;
     if (activeFilter === "PDF") return ext === "pdf";
     if (activeFilter === "Photos" || activeFilter === "DOCX") return ext === "docx";
@@ -333,10 +326,17 @@ export default function Home() {
                 <div
                   key={topic.title}
                   onClick={() => {
-                    setSearchQuery(topic.title);
-                    handleSearch(undefined, topic.keyword);
+                    setSearchResults(null);
+                    setSearchQuery("");
+                    setActiveTopicFilter((current) =>
+                      current === topic.title ? null : topic.title
+                    );
                   }}
-                  className="min-w-[210px] sm:min-w-[230px] p-5 rounded-2xl bg-white text-[#1C1917] shadow-card hover:shadow-card-hover hover:-translate-y-1 transition-all duration-200 cursor-pointer snap-start flex flex-col justify-between"
+                  className={`min-w-[210px] sm:min-w-[230px] p-5 rounded-2xl bg-white text-[#1C1917] shadow-card hover:shadow-card-hover hover:-translate-y-1 transition-all duration-200 cursor-pointer snap-start flex flex-col justify-between ${
+                    activeTopicFilter === topic.title
+                      ? "ring-2 ring-[#B87B56] ring-offset-2 ring-offset-transparent"
+                      : ""
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-6">
                     <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
@@ -372,18 +372,18 @@ export default function Home() {
             </h2>
 
             {/* Search Bar */}
-            <form onSubmit={(e) => handleSearch(e)} className="w-full sm:max-w-md">
-              <div className="relative flex items-center">
+            <form onSubmit={(e) => handleSearch(e)} className="w-full sm:max-w-xl">
+              <div className="flex items-center gap-2 p-1.5 pl-3.5 pr-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus-within:border-[var(--accent)] shadow-sm transition">
+                <span className="shrink-0 text-sm text-[var(--text-secondary)]" aria-hidden>
+                  🔍
+                </span>
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Ask intent query (e.g. Kafka report)..."
-                  className="w-full pl-10 pr-20 py-2.5 text-sm rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus:outline-none focus:border-[var(--accent)] shadow-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)]"
+                  className="flex-1 min-w-0 bg-transparent border-none py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none"
                 />
-                <span className="absolute left-3.5 text-sm text-[var(--text-secondary)]">
-                  🔍
-                </span>
                 {searchQuery && (
                   <button
                     type="button"
@@ -391,7 +391,8 @@ export default function Home() {
                       setSearchQuery("");
                       setSearchResults(null);
                     }}
-                    className="absolute right-12 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-1"
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition"
+                    aria-label="Clear search"
                   >
                     ✕
                   </button>
@@ -399,7 +400,7 @@ export default function Home() {
                 <button
                   type="submit"
                   disabled={isSearching}
-                  className="absolute right-1.5 px-3 py-1 bg-[var(--text-primary)] text-[var(--bg-surface)] rounded-full text-xs font-semibold hover:opacity-90 transition"
+                  className="shrink-0 px-4 py-2 bg-[var(--text-primary)] text-[var(--bg-surface)] rounded-full text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
                 >
                   {isSearching ? "..." : "Find"}
                 </button>
@@ -417,6 +418,7 @@ export default function Home() {
                   onClick={() => {
                     setActiveFilter(pill);
                     setSearchResults(null);
+                    setActiveTopicFilter(null);
                   }}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition select-none ${
                     activeFilter === pill
@@ -437,9 +439,9 @@ export default function Home() {
           {/* Search Results View */}
           {searchResults ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-sm font-semibold text-[var(--text-secondary)]">
-                  Semantic results for "{searchQuery}" ({searchResults.length})
+                  Hybrid results for "{searchResults.query}" ({searchResults.count})
                 </span>
                 <button
                   onClick={() => {
@@ -452,9 +454,15 @@ export default function Home() {
                 </button>
               </div>
 
-              {searchResults.length > 0 ? (
+              {!searchResults.is_confident_match && (
+                <div className="p-4 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/30 text-sm text-[var(--text-primary)]">
+                  {searchResults.confidence_message || "No confident match found."}
+                </div>
+              )}
+
+              {searchResults.results.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {searchResults.map((res) => (
+                  {searchResults.results.map((res) => (
                     <div
                       key={res.file_id + res.rank}
                       className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-card hover:shadow-card-hover transition-all flex flex-col justify-between space-y-3"
@@ -498,7 +506,9 @@ export default function Home() {
               ) : (
                 <div className="text-center py-16 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-3xl p-8">
                   <p className="text-[var(--text-secondary)] text-sm">
-                    No matching sentences found for "{searchQuery}".
+                    {searchResults.is_confident_match
+                      ? `No matching documents found for "${searchResults.query}".`
+                      : searchResults.confidence_message}
                   </p>
                 </div>
               )}
@@ -506,6 +516,21 @@ export default function Home() {
           ) : (
             /* Real Files Grid */
             <div>
+              {activeTopicFilter && (
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-semibold text-[var(--text-secondary)]">
+                    Showing {displayFiles.length} file{displayFiles.length === 1 ? "" : "s"} in{" "}
+                    {activeTopicFilter}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTopicFilter(null)}
+                    className="text-xs text-[var(--accent)] hover:underline"
+                  >
+                    Clear topic filter
+                  </button>
+                </div>
+              )}
               {loading ? (
                 <div className="text-center py-20 text-sm text-[var(--text-secondary)]">
                   Loading files from memory...
@@ -599,20 +624,33 @@ export default function Home() {
                   </div>
                   <div>
                     <h3 className="font-fraunces text-xl font-bold text-[var(--text-primary)]">
-                      No files in memory yet
+                      {activeTopicFilter
+                        ? `No files in ${activeTopicFilter}`
+                        : "No files in memory yet"}
                     </h3>
                     <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-sm mx-auto">
-                      Upload your PDF, DOCX, or TXT documents to begin semantic retrieval.
+                      {activeTopicFilter
+                        ? "Try another topic card or clear the filter to see all documents."
+                        : "Upload your PDF, DOCX, or TXT documents to begin semantic retrieval."}
                     </p>
                   </div>
-                  <div>
+                  {activeTopicFilter ? (
                     <button
-                      onClick={() => setUploadModalOpen(true)}
+                      onClick={() => setActiveTopicFilter(null)}
                       className="px-6 py-2.5 rounded-full font-semibold bg-[var(--text-primary)] text-[var(--bg-surface)] hover:opacity-90 transition text-sm shadow-sm"
                     >
-                      Upload First Document
+                      Show All Files
                     </button>
-                  </div>
+                  ) : (
+                    <div>
+                      <button
+                        onClick={() => setUploadModalOpen(true)}
+                        className="px-6 py-2.5 rounded-full font-semibold bg-[var(--text-primary)] text-[var(--bg-surface)] hover:opacity-90 transition text-sm shadow-sm"
+                      >
+                        Upload First Document
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -1,0 +1,14 @@
+Kafka Performance Tuning Guide
+
+This document covers Apache Kafka performance optimization for high-throughput streaming pipelines.
+
+Key tuning areas include broker configuration, partition sizing, replication factor, and consumer group lag monitoring. Producers should batch messages and enable compression (lz4 or zstd) to reduce network overhead.
+
+Performance benchmarks show that increasing num.io.threads and num.network.threads on brokers improves throughput for write-heavy workloads. Monitor under-replicated partitions and ISR shrink events during peak load.
+
+Recommended settings for production clusters:
+- log.segment.bytes: tune for retention vs compaction tradeoffs
+- fetch.min.bytes and fetch.max.wait.ms on consumers for batch efficiency
+- acks=all for durability-critical topics
+
+Use kafka-producer-perf-test and kafka-consumer-perf-test to establish baseline throughput before and after tuning changes.

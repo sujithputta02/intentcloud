@@ -17,10 +17,11 @@ This module is intentionally domain-independent.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 from pathlib import Path
 import logging
+import uuid
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -53,6 +54,9 @@ COLLECTION_NAME = "intentcloud_docs"
 
 MAX_SIMILARITY_FOR_DUPLICATE = 0.95
 
+# Deterministic UUID namespace for chunk point IDs (Qdrant requires UUID or int).
+POINT_ID_NAMESPACE = uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
+
 Path(QDRANT_PATH).mkdir(
     parents=True,
     exist_ok=True,
@@ -65,6 +69,11 @@ Path(QDRANT_PATH).mkdir(
 
 class QdrantIndexManager:
     """Persistent embedded Qdrant index for IntentCloud."""
+
+    @staticmethod
+    def _make_point_id(file_id: str, chunk_index: int) -> str:
+        """Derive a stable Qdrant-compatible UUID for a file chunk."""
+        return str(uuid.uuid5(POINT_ID_NAMESPACE, f"{file_id}:{chunk_index}"))
 
     def __init__(self):
 
@@ -193,6 +202,27 @@ class QdrantIndexManager:
 
 
     # -----------------------------------------------------------------------
+    # QUERY HELPERS (qdrant-client 1.19+ uses query_points, not search)
+    # -----------------------------------------------------------------------
+
+    def _query_vector(
+        self,
+        query_vector: Union[List[float], SparseVector],
+        using: str,
+        limit: int,
+        score_threshold: Optional[float] = None,
+    ) -> List[Any]:
+        """Run a named-vector similarity query and return scored points."""
+        response = self.client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_vector,
+            using=using,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        return list(response.points or [])
+
+    # -----------------------------------------------------------------------
     # DUPLICATE DETECTION
     # -----------------------------------------------------------------------
 
@@ -213,18 +243,11 @@ class QdrantIndexManager:
 
         try:
 
-            results = self.client.search(
-                collection_name=COLLECTION_NAME,
-
-                query_vector=(
-                    "dense",
-                    document_embedding,
-                ),
-
+            results = self._query_vector(
+                query_vector=document_embedding,
+                using="dense",
                 limit=5,
-                score_threshold=(
-                    MAX_SIMILARITY_FOR_DUPLICATE
-                ),
+                score_threshold=MAX_SIMILARITY_FOR_DUPLICATE,
             )
 
             for result in results:
@@ -346,9 +369,8 @@ class QdrantIndexManager:
 
             chunk_index = chunk["chunk_index"]
 
-            point_id = (
-                f"{file_id}:{chunk_index}"
-            )
+            point_id = self._make_point_id(file_id, chunk_index)
+            chunk_key = f"{file_id}:{chunk_index}"
 
             sparse_data = chunk[
                 "sparse_vector"
@@ -363,6 +385,7 @@ class QdrantIndexManager:
 
                 # Chunk identity.
                 "chunk_index": chunk_index,
+                "chunk_id": chunk_key,
 
                 # Original searchable content.
                 "chunk_text": chunk["text"],
@@ -444,17 +467,10 @@ class QdrantIndexManager:
         score_threshold: float = 0.20,
     ) -> List[Dict]:
 
-        results = self.client.search(
-
-            collection_name=COLLECTION_NAME,
-
-            query_vector=(
-                "dense",
-                query_vector,
-            ),
-
+        results = self._query_vector(
+            query_vector=query_vector,
+            using="dense",
             limit=top_k,
-
             score_threshold=score_threshold,
         )
 
@@ -485,15 +501,9 @@ class QdrantIndexManager:
             ],
         )
 
-        results = self.client.search(
-
-            collection_name=COLLECTION_NAME,
-
-            query_vector=(
-                "sparse",
-                vector,
-            ),
-
+        results = self._query_vector(
+            query_vector=vector,
+            using="sparse",
             limit=top_k,
         )
 
@@ -651,9 +661,11 @@ class QdrantIndexManager:
 
         payload = result.payload or {}
 
+        chunk_id = payload.get("chunk_id") or str(result.id)
+
         return {
 
-            "chunk_id": str(result.id),
+            "chunk_id": chunk_id,
 
             "file_id": payload.get(
                 "file_id"

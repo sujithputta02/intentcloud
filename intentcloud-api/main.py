@@ -29,7 +29,8 @@ try:
     from services.embeddings import generate_embeddings
     from services.qdrant_client import QdrantIndexManager
     from services.intent_parser import parse_intent_with_phi3
-    from services.search import hybrid_search
+    from services.search import execute_search_pipeline, hybrid_search
+    from services.reranker import get_reranker
     logger.info("✓ All service modules imported successfully")
 except ImportError as e:
     logger.error(f"✗ Failed to import service modules: {e}")
@@ -70,8 +71,11 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing Qdrant manager...")
         qdrant_manager = QdrantIndexManager()
         logger.info("✓ Qdrant manager initialized")
+        # Warm up reranker model
+        reranker = get_reranker()
+        logger.info("✓ Cross-encoder reranker initialized on %s", reranker._device)
     except Exception as e:
-        logger.error(f"✗ Failed to initialize Qdrant: {e}")
+        logger.error(f"✗ Failed to initialize Qdrant / Reranker: {e}")
         qdrant_manager = None
     yield
     logger.info("Shutting down...")
@@ -79,7 +83,7 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app with lifespan
 app = FastAPI(
     title="IntentCloud API",
-    description="Intent-aware cognitive cloud memory system",
+    description="Intent-aware cognitive cloud memory system with Phase 4 Hybrid Reranking",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -87,7 +91,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["http://localhost:3000", "http://localhost:3010", "http://localhost:3001", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,9 +103,10 @@ app.add_middleware(
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint with full backend status."""
+    """Health check endpoint with full backend and Phase 4 component status."""
     try:
         qdrant_status = qdrant_manager.health_check() if qdrant_manager else {"status": "unavailable"}
+        reranker_status = get_reranker().health_check()
         return JSONResponse({
             "status": "healthy",
             "service": "IntentCloud API",
@@ -109,8 +114,9 @@ async def health_check():
             "components": {
                 "api": "running",
                 "qdrant": qdrant_status,
+                "reranker": reranker_status,
                 "uploads_dir": str(UPLOAD_DIR),
-                "phase": "1-3 (Data Ingestion, Embeddings, Intent Parsing)"
+                "phase": "4 (Hybrid Retrieval + RRF + Cross-Encoder Reranking)"
             }
         })
     except Exception as e:
@@ -125,8 +131,8 @@ async def health_check():
 
 @app.post("/upload", tags=["Phase 1: Upload"])
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None
 ):
     """
     Phase 1 Upload Endpoint:
@@ -165,13 +171,12 @@ async def upload_document(
         save_metadata(metadata)
         
         # Trigger background processing
-        if background_tasks:
-            background_tasks.add_task(
-                process_document_pipeline,
-                file_id=file_id,
-                file_path=str(file_path),
-                filename=original_filename
-            )
+        background_tasks.add_task(
+            process_document_pipeline,
+            file_id=file_id,
+            file_path=str(file_path),
+            filename=original_filename,
+        )
         
         return JSONResponse({
             "status": "received",
@@ -233,36 +238,61 @@ async def process_document_pipeline(file_id: str, file_path: str, filename: str)
         logger.error(f"[Error] Pipeline failed: {str(e)}")
 
 # ============================================================================
-# Phase 2: Semantic Representation - Get Stats
+# Phase 2 & 4: Semantic Representation & Stats
 # ============================================================================
 
 @app.get("/stats", tags=["Phase 2: Dashboard"])
 async def get_stats():
-    """Get statistics about stored documents for dashboard"""
+    """Get statistics about stored documents, vectors, and Phase 4 hybrid engine"""
     try:
+        metadata = load_metadata()
+        reranker_info = get_reranker().health_check()
+        
         if not qdrant_manager:
-            metadata = load_metadata()
             return JSONResponse({
                 "total_vectors": 0,
                 "total_files": len(metadata),
                 "collection": "intentcloud_docs",
                 "vector_dim": 384,
+                "sparse_dim": 1000003,
+                "fusion_algorithm": "Reciprocal Rank Fusion (RRF, k=60)",
+                "reranker_model": reranker_info.get("model_name"),
+                "reranker_device": reranker_info.get("device"),
                 "status": "initializing"
             })
         
         stats = qdrant_manager.get_collection_stats()
+        stats["total_files"] = len([m for m in metadata.values() if m.get("status") != "duplicate"])
+        stats["duplicate_files"] = len([m for m in metadata.values() if m.get("status") == "duplicate"])
+        stats["fusion_algorithm"] = "Reciprocal Rank Fusion (RRF, k=60)"
+        stats["reranker_model"] = reranker_info.get("model_name")
+        stats["reranker_device"] = reranker_info.get("device")
+        stats["confidence_threshold"] = reranker_info.get("confidence_threshold", 0.40)
         return JSONResponse(stats)
     except Exception as e:
         logger.error(f"[Stats] Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
-# Phase 3: Intent-Aware Query Understanding - Search
+# Phase 4: Intent-Aware Hybrid Search with Cross-Encoder Reranking
 # ============================================================================
 
-@app.post("/search", tags=["Phase 3: Search"])
-async def search_documents(query: str, top_k: int = 5):
-    """Semantic search with Phi-3 intent understanding"""
+@app.post("/search", tags=["Phase 4: Search"])
+async def search_documents(
+    query: str,
+    top_k: int = 3,
+    search_mode: str = "hybrid",
+    threshold: Optional[float] = None,
+):
+    """
+    Phase 4 Hybrid Semantic Retrieval:
+    1. Parse natural language intent (Phi-3 Mini / fallback)
+    2. Dense semantic candidate retrieval (all-MiniLM-L6-v2)
+    3. Sparse universal keyword retrieval (feature hash)
+    4. Reciprocal Rank Fusion (RRF, k=60)
+    5. Cross-Encoder reranking (ms-marco-MiniLM-L-6-v2)
+    6. Sentence-level snippet highlighting & confidence evaluation
+    """
     try:
         if not query or len(query.strip()) < 2:
             raise HTTPException(
@@ -288,18 +318,26 @@ async def search_documents(query: str, top_k: int = 5):
                 "confidence": 0.5
             }
         
-        results = hybrid_search(
+        conf_threshold = threshold if threshold is not None else 0.40
+        
+        search_output = execute_search_pipeline(
             query=query,
             intent_data=intent_data,
             qdrant_manager=qdrant_manager,
-            top_k=top_k
+            top_k=top_k,
+            search_mode=search_mode,
+            confidence_threshold=conf_threshold,
         )
         
         return JSONResponse({
             "query": query,
+            "search_mode": search_output.get("search_mode", search_mode),
             "parsed_intent": intent_data,
-            "results": results,
-            "count": len(results)
+            "is_confident_match": search_output.get("is_confident_match", True),
+            "confidence_message": search_output.get("confidence_message", ""),
+            "results": search_output.get("results", []),
+            "count": len(search_output.get("results", [])),
+            "metrics": search_output.get("metrics", {}),
         })
     except HTTPException:
         raise
@@ -378,14 +416,14 @@ async def delete_file(file_id: str):
         # 2. Remove from Qdrant
         if qdrant_manager and qdrant_manager.client:
             try:
-                from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+                from qdrant_client import models
                 qdrant_manager.client.delete(
                     collection_name=QDRANT_COLLECTION,
-                    points_selector=Filter(
+                    points_selector=models.Filter(
                         must=[
-                            FieldCondition(
+                            models.FieldCondition(
                                 key="file_id",
-                                match=MatchValue(value=file_id)
+                                match=models.MatchValue(value=file_id)
                             )
                         ]
                     )
@@ -427,7 +465,8 @@ async def list_uploaded_files():
                     "name": info.get("filename", f_target.name),
                     "size_bytes": info.get("size_bytes", f_target.stat().st_size),
                     "modified": info.get("upload_time", f_target.stat().st_mtime),
-                    "extension": info.get("extension", f_target.suffix.replace(".", "").lower())
+                    "extension": info.get("extension", f_target.suffix.replace(".", "").lower()),
+                    "topic_tags": info.get("topic_tags", []),
                 })
         
         # Catch any stray files on disk not in metadata

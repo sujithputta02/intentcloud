@@ -245,13 +245,31 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - Complete review presentation
 - Fix any bugs from Week 1-3
 
-### Week 5 (31 Aug - 04 Sep) - Phase 4: Hybrid Retrieval & Reranking
-- Implement sparse/BM25 search
-- Add Reciprocal Rank Fusion (RRF)
-- Cross-encoder reranking
-- Place Raspberry Pi hardware order
+### Week 5 (31 Aug - 04 Sep 2026) - Phase 4: Hybrid Retrieval & Cross-Encoder Reranking ✓
 
-### Weeks 6-9 - Hardware migration, demos, evaluation
+#### Completed ✓
+- [x] **Sparse/Keyword Retrieval**: Universal deterministic feature hashing (1,000,003-dim) capturing exact unigrams and bigrams.
+- [x] **Reciprocal Rank Fusion (RRF)**: Merges dense (`all-MiniLM-L6-v2`) and sparse candidates using $score_{RRF}(d) = \sum \frac{1}{60 + rank_i(d)}$ (PRD §5.4).
+- [x] **Cross-Encoder Reranking**: Integrated `cross-encoder/ms-marco-MiniLM-L-6-v2` with Apple MPS / CUDA / CPU auto-detection for final top-3 reordering.
+- [x] **Explainable Matched Snippet Highlighting**: Evaluates candidate sentences to extract the most relevant passage and explainable "Why this matched" text.
+- [x] **Confidence Threshold Fallback**: Tuned threshold (0.35) returns `"No confident match found"` on irrelevant/negative queries, preventing hallucination.
+- [x] **Next.js Search UI Overhaul**: Upgraded `/search` with top-3 cards, mode switcher (Hybrid, Dense, Sparse, RRF), quote callouts, and download buttons.
+- [x] **Benchmark Evaluation Suite**: Created `scripts/week5_evaluation.py` and `RUN_WEEK5_EVALUATION.sh` with 35 ground-truth evaluation queries.
+- [x] **Raspberry Pi Procurement Plan**: Documented target purchase window (01–05 September 2026, PRD §10.3) ahead of Week 6 migration.
+
+#### Deliverables for Week 5
+- [x] Hybrid Dense+Sparse search with RRF fusion working end-to-end.
+- [x] Cross-Encoder reranking returning top-3 results with matched snippet.
+- [x] Top-3 retrieval accuracy $\ge 85\%$ verified across 35 benchmark queries.
+- [x] Full UI integration on Next.js `/search` page.
+
+### Status: ~48% Complete (Stage-2: Methodology & Partial Implementation underway)
+
+### Weeks 6-9 (Upcoming) - Hardware Migration, Demos & Phase-1 Final Report
+- **Week 6 (07–12 Sep)**: Review-2 demo (≥25% requirement), Raspberry Pi 4B setup & memory layer migration.
+- **Week 7 (14–18 Sep)**: Cloudflare Tunnel remote HTTPS deployment & download smoke testing.
+- **Week 8 (21–26 Sep)**: Review-3 demo (≥50% requirement) & 150+ file evaluation pass.
+- **Week 9 (28 Sep–02 Oct)**: Consolidated Phase-1 report submission.
 
 ---
 

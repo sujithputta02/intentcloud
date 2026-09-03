@@ -1,0 +1,12 @@
+Vector Search and Ranking Models
+
+Information retrieval has evolved from bag-of-words models to dense vector search over learned embeddings.
+
+Classic approaches:
+- TF-IDF and BM25: sparse lexical matching with term frequency saturation
+- Learning to Rank: LambdaMART and neural rankers trained on click logs
+- Dense retrieval: bi-encoders embed queries and documents into shared vector space
+
+Vector databases (Qdrant, Pinecone, Milvus) support approximate nearest neighbor search via HNSW or IVF indexes. Cosine similarity is standard for normalized embedding vectors.
+
+Evaluation metrics: precision@k, recall@k, MRR, and nDCG. Hybrid systems combine sparse and dense signals via reciprocal rank fusion before cross-encoder reranking.

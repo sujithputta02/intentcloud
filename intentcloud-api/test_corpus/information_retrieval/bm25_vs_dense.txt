@@ -1,0 +1,17 @@
+BM25 vs Dense Retrieval: A Comparison
+
+Sparse retrieval (BM25) excels at exact keyword matches and rare term identification. Dense retrieval captures semantic similarity when queries and documents use different vocabulary.
+
+BM25 strengths:
+- Interpretable term matching
+- No model inference at query time for pre-built index
+- Strong baseline for keyword-heavy queries
+
+Dense retrieval strengths:
+- Semantic matching ("automobile" matches "car")
+- Robust to paraphrasing and typos in embeddings space
+- Enables cross-lingual search with multilingual models
+
+Hybrid pipelines run both retrievers and fuse rankings with RRF. Cross-encoders rerank top candidates for highest precision at small k.
+
+For personal document search, dense-only Phase 3 provides a baseline; Phase 4 adds sparse and reranking for production quality.

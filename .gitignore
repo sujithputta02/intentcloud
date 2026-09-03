@@ -55,6 +55,15 @@ intentcloud-web/.env.local
 .idea/
 *.sublime-project
 *.sublime-workspace
+# Local language server symlinks
+intentcloud-api/fastapi
+intentcloud-api/numpy
+intentcloud-api/pydantic
+intentcloud-api/qdrant_client
+intentcloud-api/sentence_transformers
+intentcloud-api/starlette
+intentcloud-api/torch
+intentcloud-api/uvicorn
 
 # Testing
 .pytest_cache/

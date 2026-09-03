@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { API_URL } from "@/lib/api";
 
 interface UploadResponse {
   status: string;
@@ -26,7 +27,7 @@ export default function UploadPage() {
   const [items, setItems] = useState<IngestingItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { API_URL } from "@/lib/api";
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
