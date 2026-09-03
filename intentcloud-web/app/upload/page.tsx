@@ -27,8 +27,6 @@ export default function UploadPage() {
   const [items, setItems] = useState<IngestingItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-import { API_URL } from "@/lib/api";
-
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);

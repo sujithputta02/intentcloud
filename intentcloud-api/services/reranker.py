@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Model and configuration
 DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-DEFAULT_CONFIDENCE_THRESHOLD = 0.40  # Sigmoid-normalized score threshold (0.0 to 1.0)
+DEFAULT_CONFIDENCE_THRESHOLD = 0.35  # Sigmoid-normalized score threshold (0.0 to 1.0)
 MAX_RERANK_CANDIDATES = 25
 
 
@@ -104,6 +104,10 @@ class RerankerManager:
             raise RuntimeError("Cross-encoder model is not initialized.")
         return self._model
 
+    @property
+    def device(self) -> str:
+        return self._device
+
     def health_check(self) -> Dict:
         return {
             "status": "ready" if self._model is not None else "unavailable",
@@ -146,14 +150,16 @@ class RerankerManager:
 
         try:
             raw_scores = model.predict(pairs, show_progress_bar=False)
-            if isinstance(raw_scores, (int, float, np.floating)):
+            if np is not None and isinstance(raw_scores, getattr(np, "floating", float)):
+                raw_scores = [float(raw_scores)]
+            elif isinstance(raw_scores, (int, float)):
                 raw_scores = [float(raw_scores)]
             else:
                 raw_scores = [float(s) for s in raw_scores]
         except Exception as exc:
             logger.error("[Reranker] Cross-encoder scoring failed: %s", exc)
-            # Fallback to existing candidate ordering
-            return candidates[:top_k], True, "Reranker scoring fallback"
+            # Fallback to existing candidate ordering; do NOT falsely mark confident
+            return candidates[:top_k], False, "Reranker scoring fallback (unconfident)"
 
         # Attach scores to candidates
         scored_candidates = []
@@ -282,3 +288,12 @@ def get_reranker() -> RerankerManager:
     if _reranker_instance is None:
         _reranker_instance = RerankerManager()
     return _reranker_instance
+
+
+def get_reranker_device() -> str:
+    """Safely return the compute device without forcing model initialization if uninitialized."""
+    global _reranker_instance
+    if _reranker_instance is not None and _reranker_instance._model is not None:
+        return _reranker_instance.device
+    return detect_device()
+
