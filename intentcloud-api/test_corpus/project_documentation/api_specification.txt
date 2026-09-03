@@ -1,0 +1,29 @@
+IntentCloud API Specification (Phase 1–3)
+
+Base URL: http://localhost:8000
+
+Endpoints:
+
+POST /upload
+- Multipart file upload (PDF, DOCX, TXT)
+- Returns file_id; triggers background extract → embed → index pipeline
+
+GET /stats
+- Returns total_vectors, collection status, embedding dimensions
+
+POST /search?query=...&top_k=5
+- Natural language query with Phi-3 intent parsing
+- Returns parsed_intent JSON and ranked dense search results
+
+GET /health
+- Service and Qdrant component status
+
+GET /files
+- List uploaded documents with metadata
+
+GET /download/{file_id}
+DELETE /files/{file_id}
+
+Authentication: none (local development). CORS enabled for localhost:3000 frontend.
+
+Error codes: 400 invalid input, 503 Qdrant unavailable, 500 pipeline failure.

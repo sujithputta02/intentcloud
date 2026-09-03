@@ -1,0 +1,294 @@
+{
+  "version": "2.0",
+  "description": "Week 5 benchmark evaluation dataset (35 queries covering dense, sparse, hybrid, and confidence thresholding)",
+  "eval_queries": [
+    {
+      "id": "query_001",
+      "query": "Find documents about Kafka performance optimization",
+      "expected_files": ["kafka_performance_tuning.txt"],
+      "intent_type": "find",
+      "keywords": ["Kafka", "performance", "optimization"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_002",
+      "query": "Where are the Kafka stream processing notes?",
+      "expected_files": ["kafka_stream_processing.txt"],
+      "intent_type": "find",
+      "keywords": ["Kafka", "stream", "processing"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_003",
+      "query": "Show me microservices design patterns",
+      "expected_files": ["microservices_patterns.txt"],
+      "intent_type": "find",
+      "keywords": ["microservices", "patterns"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_004",
+      "query": "Find service mesh architecture documentation",
+      "expected_files": ["service_mesh_guide.txt"],
+      "intent_type": "find",
+      "keywords": ["service", "mesh"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_005",
+      "query": "Where is the thesis draft about neural networks?",
+      "expected_files": ["thesis_neural_networks_v1.txt"],
+      "intent_type": "find",
+      "keywords": ["thesis", "neural", "networks"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_006",
+      "query": "Find deep learning fundamentals material",
+      "expected_files": ["deep_learning_fundamentals.txt"],
+      "intent_type": "find",
+      "keywords": ["deep", "learning"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_007",
+      "query": "Show transformer architecture documentation",
+      "expected_files": ["transformer_architecture.txt"],
+      "intent_type": "find",
+      "keywords": ["transformer", "architecture"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_008",
+      "query": "Find vector search and ranking papers",
+      "expected_files": ["vector_search_ranking.txt"],
+      "intent_type": "find",
+      "keywords": ["vector", "search", "ranking"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_009",
+      "query": "Compare BM25 and dense retrieval approaches",
+      "expected_files": ["bm25_vs_dense.txt"],
+      "intent_type": "compare",
+      "keywords": ["BM25", "dense"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_010",
+      "query": "Find the Q3 2026 business summary report",
+      "expected_files": ["q3_2026_summary.txt"],
+      "intent_type": "find",
+      "keywords": ["Q3", "2026", "summary"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_011",
+      "query": "Show market analysis documents",
+      "expected_files": ["market_analysis.txt"],
+      "intent_type": "find",
+      "keywords": ["market", "analysis"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_012",
+      "query": "Find the API specification document",
+      "expected_files": ["api_specification.txt"],
+      "intent_type": "find",
+      "keywords": ["API", "specification"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_013",
+      "query": "Where is the IntentCloud three-layer architecture design document?",
+      "expected_files": ["architecture_design.txt"],
+      "intent_type": "find",
+      "keywords": ["IntentCloud", "architecture", "design"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_014",
+      "query": "Find Kubernetes deployment guides",
+      "expected_files": ["kubernetes_deployment.txt"],
+      "intent_type": "find",
+      "keywords": ["Kubernetes", "deployment"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_015",
+      "query": "Show CI/CD pipeline documentation",
+      "expected_files": ["ci_cd_pipeline.txt"],
+      "intent_type": "find",
+      "keywords": ["CI", "CD", "pipeline"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_016",
+      "query": "How to configure consumer lag and partition throughput in Kafka?",
+      "expected_files": ["kafka_performance_tuning.txt"],
+      "intent_type": "find",
+      "keywords": ["Kafka", "lag", "throughput"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_017",
+      "query": "Event driven stateful stream aggregations with exactly once semantics",
+      "expected_files": ["kafka_stream_processing.txt"],
+      "intent_type": "find",
+      "keywords": ["Kafka", "stream", "semantics"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_018",
+      "query": "Circuit breaker and saga pattern for distributed transactions",
+      "expected_files": ["microservices_patterns.txt"],
+      "intent_type": "find",
+      "keywords": ["circuit breaker", "saga", "microservices"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_019",
+      "query": "Istio Envoy sidecar proxy traffic routing and mTLS security",
+      "expected_files": ["service_mesh_guide.txt"],
+      "intent_type": "find",
+      "keywords": ["Istio", "Envoy", "service mesh"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_020",
+      "query": "Backpropagation gradient descent and activation functions research",
+      "expected_files": ["thesis_neural_networks_v1.txt", "deep_learning_fundamentals.txt"],
+      "intent_type": "find",
+      "keywords": ["backpropagation", "neural networks", "gradient"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_021",
+      "query": "Convolutional and recurrent networks loss function convergence",
+      "expected_files": ["deep_learning_fundamentals.txt"],
+      "intent_type": "find",
+      "keywords": ["convolutional", "recurrent", "loss"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_022",
+      "query": "Multi head self attention mechanism and positional encodings",
+      "expected_files": ["transformer_architecture.txt"],
+      "intent_type": "find",
+      "keywords": ["attention", "transformer", "positional"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_023",
+      "query": "Approximate nearest neighbor HNSW indexing and cross encoder reranking",
+      "expected_files": ["vector_search_ranking.txt"],
+      "intent_type": "find",
+      "keywords": ["HNSW", "vector search", "reranking"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_024",
+      "query": "Lexical term frequency inverse document frequency versus embedding cosine similarity",
+      "expected_files": ["bm25_vs_dense.txt"],
+      "intent_type": "compare",
+      "keywords": ["BM25", "dense", "cosine"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_025",
+      "query": "Revenue metrics ARR churn rate and gross margin quarter analysis",
+      "expected_files": ["q3_2026_summary.txt"],
+      "intent_type": "find",
+      "keywords": ["revenue", "ARR", "margin"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_026",
+      "query": "Competitive landscape CAGR total addressable market forecast",
+      "expected_files": ["market_analysis.txt"],
+      "intent_type": "find",
+      "keywords": ["market", "CAGR", "competitive"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_027",
+      "query": "REST endpoints JSON schema request headers error codes",
+      "expected_files": ["api_specification.txt"],
+      "intent_type": "find",
+      "keywords": ["REST", "endpoints", "schema"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_028",
+      "query": "Cognitive layer memory layer raspberry pi cloudflare tunnel system design",
+      "expected_files": ["architecture_design.txt"],
+      "intent_type": "find",
+      "keywords": ["cognitive layer", "memory layer", "architecture"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_029",
+      "query": "Helm charts rolling update ingress controller horizontal pod autoscaler",
+      "expected_files": ["kubernetes_deployment.txt"],
+      "intent_type": "find",
+      "keywords": ["Kubernetes", "Helm", "autoscaler"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_030",
+      "query": "GitHub Actions automated testing Docker build artifact deployment pipeline",
+      "expected_files": ["ci_cd_pipeline.txt"],
+      "intent_type": "find",
+      "keywords": ["GitHub Actions", "CI/CD", "pipeline"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_031",
+      "query": "What are the latency considerations for real-time Kafka consumers?",
+      "expected_files": ["kafka_performance_tuning.txt"],
+      "intent_type": "find",
+      "keywords": ["latency", "Kafka", "consumers"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "query_032",
+      "query": "Self hosted privacy preserving local AI semantic search architecture",
+      "expected_files": ["architecture_design.txt"],
+      "intent_type": "find",
+      "keywords": ["self hosted", "privacy", "semantic search"],
+      "expect_confident_match": true
+    },
+    {
+      "id": "neg_query_001",
+      "query": "Chocolate fudge brownie recipe with almond milk and sea salt",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["chocolate", "brownie", "recipe"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_002",
+      "query": "How to plant organic tomatoes in sandy loam soil during winter?",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["tomatoes", "soil", "winter"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_003",
+      "query": "Ancient Egyptian hieroglyphics translation phonetics grammar guide",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["hieroglyphics", "Egyptian", "ancient"],
+      "expect_confident_match": false
+    }
+  ],
+  "duplicate_pairs": [
+    {
+      "id": "dup_001",
+      "original": "thesis_research/thesis_neural_networks_v1.txt",
+      "near_duplicate": "thesis_research/thesis_neural_networks_v2.txt",
+      "expected_behavior": "second upload flagged as duplicate, not indexed"
+    }
+  ]
+}

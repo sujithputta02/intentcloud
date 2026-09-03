@@ -1,0 +1,22 @@
+IntentCloud System Architecture Design
+
+Three-layer architecture for intent-aware document memory:
+
+User Layer (Next.js)
+- Upload, Search, Dashboard pages on localhost:3000
+- Theme-aware responsive UI (360px–1920px)
+
+Cognitive Layer (FastAPI)
+- Phase 1: extraction (PyMuPDF, python-docx, Tesseract OCR fallback)
+- Phase 2: embeddings (all-MiniLM-L6-v2, 384-dim) + Qdrant indexing
+- Phase 3: intent parsing (Phi-3 via Ollama) + dense semantic search
+
+Memory Layer (Qdrant embedded)
+- Hybrid collection schema: dense + sparse vectors per chunk
+- Duplicate detection at upload (cosine similarity ≥ 0.95)
+- Persistent storage at ./qdrant_storage/
+
+Data flow — Upload: file → extract text → chunk → embed → deduplicate → upsert
+Data flow — Search: query → Phi-3 intent JSON → dense vector search → top-N results
+
+Future (Week 5+): BM25 sparse retrieval, RRF fusion, cross-encoder reranking, Raspberry Pi deployment.

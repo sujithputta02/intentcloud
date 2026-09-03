@@ -1,0 +1,18 @@
+{
+  "venvPath": ".",
+  "venv": "intentcloud-api/venv",
+  "extraPaths": [
+    "intentcloud-api",
+    "intentcloud-api/venv/lib/python3.11/site-packages"
+  ],
+  "include": [
+    "intentcloud-api"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "intentcloud-api/venv"
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none"
+}

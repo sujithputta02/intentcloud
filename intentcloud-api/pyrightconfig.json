@@ -1,0 +1,18 @@
+{
+  "venvPath": ".",
+  "venv": "venv",
+  "extraPaths": [
+    ".",
+    "venv/lib/python3.11/site-packages"
+  ],
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "venv"
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none"
+}

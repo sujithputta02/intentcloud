@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TOPIC_DEFINITIONS, classifyFile, countFilesByTopic } from "@/lib/topics";
+import { API_URL } from "@/lib/api";
 
 interface StatsResponse {
   total_vectors: number;
   total_files: number;
+  duplicate_files?: number;
   collection: string;
   vector_dim: number;
+  sparse_dim?: number;
+  fusion_algorithm?: string;
+  reranker_model?: string;
+  reranker_device?: string;
+  confidence_threshold?: number;
   status: string;
   topic_counts?: Record<string, number>;
 }
@@ -17,6 +25,7 @@ interface UploadedFile {
   size_bytes: number;
   modified: number;
   extension: string;
+  topic_tags?: string[];
 }
 
 interface FileResponse {
@@ -27,11 +36,10 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>("All");
+  const [activeTopicFilter, setActiveTopicFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const fetchStatsAndFiles = async () => {
     try {
@@ -117,33 +125,28 @@ export default function DashboardPage() {
     }
   };
 
-  // Topic icon map — only cosmetic; counts come from the backend /stats
-  // endpoint (topic_counts), which is sourced from real Qdrant topic_tags
-  // metadata (PRD §7.7 Week-3), not client-side filename substring matching.
-  const TOPIC_ICONS: Record<string, string> = {
-    Kafka: "⚡",
-    Microservices: "⚡",
-    "Thesis & Research": "🎓",
-    "Machine Learning": "🤖",
-    "Information Retrieval": "🔎",
-    "Business Reports": "📊",
-    "Project Docs": "📁",
-    "Cloud & DevOps": "☁️",
-    "General Research": "📚",
-  };
+  const topicCounts = countFilesByTopic(files);
 
-  // Build the topic cloud from the backend topic_counts if present; fall back
-  // to an empty list when no files are indexed yet (states are still loading
-  // or no uploads have been processed).
-  const topicsWithCounts = stats?.topic_counts
-    ? Object.entries(stats.topic_counts).map(([name, count]) => ({
-        name,
-        icon: TOPIC_ICONS[name] ?? "📎",
-        count,
-      }))
-    : [];
+  const topicsWithCounts = TOPIC_DEFINITIONS.map((topic) => ({
+    name: topic.title,
+    icon:
+      topic.title === "Kafka & Microservices"
+        ? "⚡"
+        : topic.title === "Thesis Drafts"
+        ? "🎓"
+        : topic.title === "ML Models & AI"
+        ? "🤖"
+        : topic.title === "Business Reports"
+        ? "📊"
+        : "📁",
+    count: topicCounts[topic.title] ?? 0,
+  }));
 
   const filteredFiles = files.filter((f) => {
+    if (activeTopicFilter) {
+      const fileTopic = classifyFile(f.name, f.topic_tags ?? []);
+      if (fileTopic !== activeTopicFilter) return false;
+    }
     if (activeFilter === "All") return true;
     return f.extension.toLowerCase() === activeFilter.toLowerCase();
   });
@@ -157,12 +160,76 @@ export default function DashboardPage() {
           style={{ background: "var(--bg-hero)" }}
         >
           <div className="max-w-2xl space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 border border-white/20 mb-1">
+              <span>⚡ Phase 4</span>
+              <span>•</span>
+              <span>Hybrid Memory Layer (Qdrant + RRF + Cross-Encoder)</span>
+            </div>
             <h1 className="font-fraunces text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight">
               {getGreeting()}, Researcher
             </h1>
             <p className="text-base sm:text-lg opacity-90 font-normal">
-              You have <span className="font-semibold">{files.length} documents</span> stored across{" "}
-              <span className="font-semibold">{stats?.total_vectors || 0} vector embeddings</span>.
+              You have <span className="font-semibold">{stats?.total_files ?? files.length} active documents</span> stored across{" "}
+              <span className="font-semibold">{stats?.total_vectors || 0} dense+sparse vectors</span>.
+            </p>
+          </div>
+        </div>
+
+        {/* Phase 4 Cognitive Architecture Metrics */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+              Dense Vector Space
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-fraunces text-[var(--text-primary)]">
+                {stats?.vector_dim || 384}-d
+              </span>
+              <span className="text-xs text-[var(--accent)] font-semibold">all-MiniLM-L6-v2</span>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)]">Dense semantic similarity index</p>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+              Sparse Keyword Space
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-fraunces text-[var(--text-primary)]">
+                1,000,003
+              </span>
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">Universal Hash</span>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)]">Exact lexical & keyword token matches</p>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+              Candidate Fusion (RRF)
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-fraunces text-[var(--text-primary)]">
+                k = 60
+              </span>
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold">PRD §5.4</span>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)]">Reciprocal Rank Fusion score merging</p>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+              Cross-Encoder Reranker
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-fraunces text-[var(--text-primary)]">
+                Top 3
+              </span>
+              <span className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold uppercase">
+                {stats?.reranker_device || "Active"}
+              </span>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)] truncate" title={stats?.reranker_model || "ms-marco-MiniLM"}>
+              {stats?.reranker_model ? "ms-marco-MiniLM" : "Reranking ready"}
             </p>
           </div>
         </div>
@@ -190,9 +257,17 @@ export default function DashboardPage() {
                 No topics yet — upload documents to populate the topic cloud.
               </div>
             ) : (topicsWithCounts.map((t) => (
-              <div
+              <button
                 key={t.name}
-                className="w-64 p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] snap-start shrink-0 flex flex-col justify-between space-y-3 shadow-card"
+                type="button"
+                onClick={() =>
+                  setActiveTopicFilter((current) => (current === t.name ? null : t.name))
+                }
+                className={`w-64 p-5 rounded-2xl bg-[var(--bg-surface)] border snap-start shrink-0 flex flex-col justify-between space-y-3 shadow-card text-left transition ${
+                  activeTopicFilter === t.name
+                    ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/30"
+                    : "border-[var(--border-subtle)] hover:border-[var(--accent)]/40"
+                }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-2xl">{t.icon}</span>
@@ -208,7 +283,7 @@ export default function DashboardPage() {
                     Semantic cluster
                   </p>
                 </div>
-              </div>
+              </button>
               ))
             )}
           </div>
@@ -232,7 +307,10 @@ export default function DashboardPage() {
                 <button
                   key={pill}
                   type="button"
-                  onClick={() => setActiveFilter(pill)}
+                  onClick={() => {
+                    setActiveFilter(pill);
+                    setActiveTopicFilter(null);
+                  }}
                   className={`px-3.5 py-1.5 rounded-lg transition ${
                     activeFilter === pill
                       ? "bg-[var(--accent)] text-white shadow-sm"
@@ -309,7 +387,11 @@ export default function DashboardPage() {
           ) : (
             <div className="text-center py-16 p-8 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-3">
               <p className="text-[var(--text-secondary)] text-sm">
-                No documents found for the <strong className="font-semibold text-[var(--text-primary)]">{activeFilter}</strong> filter.
+                {activeTopicFilter
+                  ? `No documents found in ${activeTopicFilter}.`
+                  : (
+                    <>No documents found for the <strong className="font-semibold text-[var(--text-primary)]">{activeFilter}</strong> filter.</>
+                  )}
               </p>
             </div>
           )}

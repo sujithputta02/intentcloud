@@ -1,0 +1,14 @@
+Deep Learning Fundamentals
+
+Deep learning uses multi-layer neural networks to learn hierarchical representations from data. This primer covers the essential concepts for practitioners.
+
+Core topics:
+- Forward propagation and backpropagation
+- Activation functions: ReLU, sigmoid, softmax
+- Loss functions: cross-entropy, MSE, contrastive loss
+- Optimization: SGD, Adam, learning rate schedules
+- Regularization: dropout, weight decay, early stopping
+
+Convolutional networks excel at spatial data (images); recurrent and transformer models dominate sequential and textual data. Transfer learning from pretrained models reduces training data requirements significantly.
+
+Hardware: GPUs accelerate matrix operations; mixed-precision training reduces memory footprint on modern accelerators.

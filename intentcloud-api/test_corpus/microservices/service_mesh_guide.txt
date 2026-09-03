@@ -1,0 +1,13 @@
+Service Mesh Architecture Guide
+
+A service mesh provides infrastructure-level networking for microservices: traffic management, security, and observability without embedding logic in application code.
+
+Istio and Linkerd are popular implementations. Sidecar proxies (Envoy) intercept all inter-service communication, enabling mTLS, retries, timeouts, and traffic splitting for canary deployments.
+
+Key capabilities:
+- Mutual TLS between all services in the mesh
+- Fine-grained authorization policies
+- Request routing and fault injection for chaos testing
+- Golden metrics: latency, traffic volume, error rate
+
+Adopt a service mesh when you have many services and need consistent policy enforcement. For smaller deployments, a simple API gateway may suffice.

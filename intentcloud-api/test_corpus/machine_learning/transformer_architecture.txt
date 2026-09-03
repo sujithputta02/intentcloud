@@ -1,0 +1,13 @@
+Transformer Architecture Reference
+
+The transformer replaces recurrence with self-attention, enabling parallel training over token sequences.
+
+Components:
+- Multi-head self-attention: queries, keys, values projected into multiple subspaces
+- Position encodings: sinusoidal or learned positional embeddings
+- Feed-forward layers with residual connections and layer normalization
+- Encoder-decoder stacks for seq2seq; encoder-only for BERT-style models
+
+Training uses masked language modeling (BERT) or autoregressive next-token prediction (GPT). Fine-tuning adapts pretrained transformers to downstream tasks with minimal labeled data.
+
+Inference optimizations include KV caching, quantization (INT8/INT4), and distillation into smaller student models for deployment on edge devices.

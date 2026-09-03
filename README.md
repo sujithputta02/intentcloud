@@ -26,31 +26,38 @@ IntentCloud uses AI to:
 
 ## 🎯 How It Works
 
-### Three-Phase Cognitive Pipeline
+### Four-Phase Cognitive Retrieval Pipeline (Phase 4)
 
 ```
-Your Documents
+Your Documents (PDF, DOCX, TXT)
       ↓
-   [INGEST] Extract text from PDFs, Word docs, text files
+   [PHASE 1: INGEST & EXTRACT] PyMuPDF / python-docx with Tesseract OCR fallback
       ↓
-   [EMBED]  Convert to semantic vectors (sentence-transformers)
+   [PHASE 2: DUAL EMBEDDING]   Dense (all-MiniLM-L6, 384-d) + Sparse Feature Hash (1,000,003-d)
       ↓
-   [INDEX]  Store in vector database (Qdrant)
+   [PHASE 2: HYBRID INDEX]     Embedded Qdrant Hybrid Collection with Cosine Duplicate Detection
       ↓
 User Query ("Find discussions about...")
       ↓
-   [PARSE]  AI extracts intent and keywords (Phi-3 via Ollama)
+   [PHASE 3: INTENT PARSING]   Local LLM extracts intent, target topic & keywords
       ↓
-   [SEARCH] Semantic similarity search
+   [PHASE 4: DUAL RETRIEVAL]   Parallel Dense Similarity Search + Sparse Keyword Search
       ↓
-   [RANK]   Return top results with relevance scores & explanations
+   [PHASE 4: RRF FUSION]       Reciprocal Rank Fusion merges candidate streams:
+                               score_RRF(d) = Σ 1 / (60 + rank_i(d))
       ↓
-Relevant Documents + "Why This Matched"
+   [PHASE 4: RERANKING]        Cross-Encoder (ms-marco-MiniLM) scores top candidates for Top-3
+      ↓
+   [PHASE 4: EXPLAINABILITY]   Extracts highest-similarity matched sentence & citation quote
+      ↓
+   [PHASE 4: CONFIDENCE]       Confidence thresholding (0.35) graceful fallback
+      ↓
+Relevant Documents + Exact Matched Citation + "Why This Matched" Rationale
 ```
 
-### Key Insight: Intent Parsing
+### Key Insight: Hybrid Retrieval & Cross-Encoder Precision
 
-IntentCloud doesn't just embed and search—it understands *intent*. When you search for "findings on migration", the system recognizes you want conclusions/results, not just mentions of the word "migration". This makes search results dramatically more useful.
+IntentCloud combines the semantic generalization of transformer embeddings with the exact keyword precision of sparse token hashing, fused through **Reciprocal Rank Fusion ($k=60$)** and precision-tuned by a **Cross-Encoder**. This eliminates both false-positive hallucinations and missed rare-keyword hits.
 
 ---
 

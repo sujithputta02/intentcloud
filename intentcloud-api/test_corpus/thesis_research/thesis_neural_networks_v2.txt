@@ -1,0 +1,20 @@
+Thesis Draft: Neural Networks for Document Understanding
+
+Chapter 1 — Introduction
+
+Neural networks have transformed natural language processing and information retrieval. This thesis investigates transformer-based architectures for semantic document search in personal knowledge management system.
+
+Research questions:
+1. How do dense embeddings compare to sparse retrieval for heterogeneous document corpora?
+2. Can intent-aware query parsing improve retrieval precision over raw keyword search?
+3. What is the tradeoff between latency and accuracy on resource-constrained hardware?
+
+Chapter 2 — Background
+
+We review feed-forward networks, recurrent models, attention mechanisms, and the transformer architecture introduced by Vaswani et al. Sentence-BERT and MiniLM provide efficient sentence-level embeddings suitable for edge deployment.
+
+Chapter 3 — Methodology
+
+Our system ingests PDF, DOCX, and plain text documents, extracts content, generates 384-dimensional embeddings, and indexes vectors in Qdrant for cosine similarity search.
+
+Expected contributions include a hybrid retrieval pipeline and evaluation on a 180-document test corpus spanning eight topic categories.

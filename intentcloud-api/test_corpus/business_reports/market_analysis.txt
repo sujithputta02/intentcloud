@@ -1,0 +1,15 @@
+Market Analysis: Document Intelligence Platforms
+
+The document intelligence market is projected to reach $8.2B by 2028, growing at 22% CAGR.
+
+Segment leaders offer OCR, entity extraction, and semantic search. Differentiation increasingly depends on on-device privacy and intent-aware retrieval rather than cloud-only RAG.
+
+Customer priorities (2026 survey, n=450):
+1. Data sovereignty and local-first storage (61%)
+2. Natural language search over personal archives (58%)
+3. Duplicate detection and corpus deduplication (34%)
+4. Hybrid retrieval quality vs latency tradeoffs (29%)
+
+IntentCloud positioning: privacy-preserving cognitive memory with Phi-3 intent parsing and Qdrant vector indexing, deployable from laptop to Raspberry Pi edge node.
+
+Competitive moat: end-to-end pipeline (upload → extract → embed → intent search) with transparent architecture for academic and enterprise review.

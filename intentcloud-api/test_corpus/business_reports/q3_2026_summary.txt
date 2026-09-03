@@ -1,0 +1,14 @@
+Q3 2026 Executive Summary
+
+Quarterly business review for July–September 2026.
+
+Revenue grew 12% quarter-over-quarter driven by enterprise SaaS subscriptions. Gross margin improved to 68% after infrastructure cost optimization.
+
+Key highlights:
+- Launched IntentCloud cognitive memory prototype (Phase 1–3 complete)
+- Signed 3 new enterprise pilots for document intelligence
+- Reduced customer churn from 4.2% to 3.1% via improved onboarding
+
+Risks: competitive pressure in RAG tooling market, hiring pipeline for ML engineers.
+
+Outlook Q4: expand hybrid search capabilities, begin Raspberry Pi edge deployment pilot, target Review-2 gate by October.

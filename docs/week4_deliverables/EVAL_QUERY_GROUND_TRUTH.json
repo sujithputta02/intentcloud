@@ -1,0 +1,119 @@
+{
+  "version": "1.0",
+  "description": "Week 4 ground truth evaluation queries (canonical copy — source: intentcloud-api/test_corpus/ground_truth.json)",
+  "eval_queries": [
+    {
+      "id": "query_001",
+      "query": "Find documents about Kafka performance optimization",
+      "expected_files": ["kafka_performance_tuning.txt"],
+      "intent_type": "find",
+      "keywords": ["Kafka", "performance", "optimization"]
+    },
+    {
+      "id": "query_002",
+      "query": "Where are the Kafka stream processing notes?",
+      "expected_files": ["kafka_stream_processing.txt"],
+      "intent_type": "find",
+      "keywords": ["Kafka", "stream", "processing"]
+    },
+    {
+      "id": "query_003",
+      "query": "Show me microservices design patterns",
+      "expected_files": ["microservices_patterns.txt"],
+      "intent_type": "find",
+      "keywords": ["microservices", "patterns"]
+    },
+    {
+      "id": "query_004",
+      "query": "Find service mesh architecture documentation",
+      "expected_files": ["service_mesh_guide.txt"],
+      "intent_type": "find",
+      "keywords": ["service", "mesh"]
+    },
+    {
+      "id": "query_005",
+      "query": "Where is the thesis draft about neural networks?",
+      "expected_files": ["thesis_neural_networks_v1.txt"],
+      "intent_type": "find",
+      "keywords": ["thesis", "neural", "networks"]
+    },
+    {
+      "id": "query_006",
+      "query": "Find deep learning fundamentals material",
+      "expected_files": ["deep_learning_fundamentals.txt"],
+      "intent_type": "find",
+      "keywords": ["deep", "learning"]
+    },
+    {
+      "id": "query_007",
+      "query": "Show transformer architecture documentation",
+      "expected_files": ["transformer_architecture.txt"],
+      "intent_type": "find",
+      "keywords": ["transformer", "architecture"]
+    },
+    {
+      "id": "query_008",
+      "query": "Find vector search and ranking papers",
+      "expected_files": ["vector_search_ranking.txt"],
+      "intent_type": "find",
+      "keywords": ["vector", "search", "ranking"]
+    },
+    {
+      "id": "query_009",
+      "query": "Compare BM25 and dense retrieval approaches",
+      "expected_files": ["bm25_vs_dense.txt"],
+      "intent_type": "compare",
+      "keywords": ["BM25", "dense"]
+    },
+    {
+      "id": "query_010",
+      "query": "Find the Q3 2026 business summary report",
+      "expected_files": ["q3_2026_summary.txt"],
+      "intent_type": "find",
+      "keywords": ["Q3", "2026", "summary"]
+    },
+    {
+      "id": "query_011",
+      "query": "Show market analysis documents",
+      "expected_files": ["market_analysis.txt"],
+      "intent_type": "find",
+      "keywords": ["market", "analysis"]
+    },
+    {
+      "id": "query_012",
+      "query": "Find the API specification document",
+      "expected_files": ["api_specification.txt"],
+      "intent_type": "find",
+      "keywords": ["API", "specification"]
+    },
+    {
+      "id": "query_013",
+      "query": "Where is the IntentCloud three-layer architecture design document?",
+      "expected_files": ["architecture_design.txt"],
+      "intent_type": "find",
+      "keywords": ["IntentCloud", "architecture", "design"]
+    },
+    {
+      "id": "query_014",
+      "query": "Find Kubernetes deployment guides",
+      "expected_files": ["kubernetes_deployment.txt"],
+      "intent_type": "find",
+      "keywords": ["Kubernetes", "deployment"]
+    },
+    {
+      "id": "query_015",
+      "query": "Show CI/CD pipeline documentation",
+      "expected_files": ["ci_cd_pipeline.txt"],
+      "intent_type": "find",
+      "keywords": ["CI", "CD", "pipeline"]
+    }
+  ],
+  "duplicate_pairs": [
+    {
+      "id": "dup_001",
+      "original": "thesis_research/thesis_neural_networks_v1.txt",
+      "near_duplicate": "thesis_research/thesis_neural_networks_v2.txt",
+      "expected_behavior": "second upload flagged as duplicate, not indexed"
+    }
+  ]
+}
