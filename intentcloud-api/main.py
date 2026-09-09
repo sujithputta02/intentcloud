@@ -30,7 +30,7 @@ try:
     from services.qdrant_client import QdrantIndexManager
     from services.intent_parser import parse_intent_with_phi3
     from services.search import execute_search_pipeline, hybrid_search
-    from services.reranker import get_reranker
+    from services.reranker import get_reranker, DEFAULT_CONFIDENCE_THRESHOLD
     logger.info("✓ All service modules imported successfully")
 except ImportError as e:
     logger.error(f"✗ Failed to import service modules: {e}")
@@ -274,7 +274,7 @@ async def get_stats():
         stats["fusion_algorithm"] = "Reciprocal Rank Fusion (RRF, k=60)"
         stats["reranker_model"] = reranker_info.get("model_name")
         stats["reranker_device"] = reranker_info.get("device")
-        stats["confidence_threshold"] = reranker_info.get("confidence_threshold", 0.40)
+        stats["confidence_threshold"] = reranker_info.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD)
         return JSONResponse(stats)
     except Exception as e:
         logger.error(f"[Stats] Failed: {e}")
@@ -325,7 +325,7 @@ async def search_documents(
                 "confidence": 0.5
             }
         
-        conf_threshold = threshold if threshold is not None else 0.35
+        conf_threshold = threshold if threshold is not None else DEFAULT_CONFIDENCE_THRESHOLD
         
         search_output = execute_search_pipeline(
             query=query,

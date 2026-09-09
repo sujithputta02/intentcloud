@@ -28,6 +28,11 @@ RRF_K_CONSTANT = 60
 DEFAULT_CANDIDATE_K = 20
 DEFAULT_TOP_K = 3
 
+# Baseline-mode gating uses raw Qdrant retrieval scores (cosine / RRF), not cross-encoder sigmoid.
+DENSE_BASELINE_MIN_SCORE = 0.35
+SPARSE_BASELINE_MIN_SCORE = 0.15
+RRF_BASELINE_MIN_SCORE = 0.20
+
 
 def reciprocal_rank_fusion(
     dense_results: List[Dict],
@@ -176,7 +181,7 @@ def execute_search_pipeline(
                 intent_data=intent_data,
                 mode_name="Sparse Keyword",
             )
-            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= 0.15
+            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= SPARSE_BASELINE_MIN_SCORE
             confidence_msg = "Sparse keyword search completed."
 
         elif search_mode == "dense":
@@ -193,7 +198,7 @@ def execute_search_pipeline(
                 intent_data=intent_data,
                 mode_name="Dense Semantic",
             )
-            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= 0.35
+            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= DENSE_BASELINE_MIN_SCORE
             confidence_msg = "Dense semantic search completed."
 
         elif search_mode == "rrf_only":
@@ -219,7 +224,7 @@ def execute_search_pipeline(
                 intent_data=intent_data,
                 mode_name="Hybrid RRF",
             )
-            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= 0.20
+            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= RRF_BASELINE_MIN_SCORE
             confidence_msg = "Hybrid RRF fusion completed."
 
         else:
