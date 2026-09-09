@@ -325,7 +325,7 @@ async def search_documents(
                 "confidence": 0.5
             }
         
-        conf_threshold = threshold if threshold is not None else 0.35
+        conf_threshold = threshold if threshold is not None else 0.40
         
         search_output = execute_search_pipeline(
             query=query,

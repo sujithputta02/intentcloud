@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Model and configuration
 DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-DEFAULT_CONFIDENCE_THRESHOLD = 0.35  # Sigmoid-normalized score threshold (0.0 to 1.0)
+DEFAULT_CONFIDENCE_THRESHOLD = 0.40  # Sigmoid-normalized score threshold (0.0 to 1.0)
 MAX_RERANK_CANDIDATES = 25
 
 

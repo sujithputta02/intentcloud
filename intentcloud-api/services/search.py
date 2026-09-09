@@ -193,7 +193,7 @@ def execute_search_pipeline(
                 intent_data=intent_data,
                 mode_name="Dense Semantic",
             )
-            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= 0.35
+            is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= confidence_threshold
             confidence_msg = "Dense semantic search completed."
 
         elif search_mode == "rrf_only":
