@@ -353,8 +353,8 @@ Future work will focus on:
 1. Scaled Evaluation: Expanding the corpus to 100+ documents and 100 graded-relevance 
    queries with statistical significance testing (paired t-test / Wilcoxon).
 2. Edge Hardware Deployment: Porting the embedded Qdrant and transformer inference 
-   pipeline onto a Raspberry Pi 4B (8GB RAM, hardware procured; assembly and OS 
-   bring-up scheduled).
+   pipeline onto a Raspberry Pi 3B edge node (hardware procured; heatsink/cooling
+   kit order and OS bring-up scheduled).
 3. Zero-Trust Remote Access: Exposing the edge node via outbound-only Cloudflare 
    Zero-Trust tunnels without inbound router port forwarding.
 

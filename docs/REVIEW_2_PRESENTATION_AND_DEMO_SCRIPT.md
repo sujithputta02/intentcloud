@@ -6,7 +6,7 @@
 | **Project Title** | IntentCloud: Intent-Aware Cognitive Cloud Memory System |
 | **Review Milestone** | Review-2 ($\ge 25\%$ Working Implementation Demo + Progress Status) |
 | **Evaluation Date** | 12 September 2026 (50 Marks) |
-| **Current Progress** | **53% Cumulative Completion** (PRD Week 6 target: 58%; Pi migration deferred to Week 7. Exceeds $\ge 25\%$ requirement.) |
+| **Current Progress** | **54% Cumulative Completion** (PRD Week 6 target: 58%; Pi migration deferred to Week 7. Exceeds $\ge 25\%$ requirement.) |
 | **Team Members** | Sujith Putta (`ENG23CT0058`), K Vikas Aneesh Reddy (`ENG23CT0052`), Mokshith Karnati (`ENG23CT0053`) |
 | **Research Guide** | Dr. Ramandeep Kaur, Associate Professor, Dept. of CST, DSU |
 
@@ -46,7 +46,7 @@
 
 ### Slide 5: Implementation Progress Status vs. Circular Requirements
 - **University Review-2 Requirement:** Minimum **25%** working implementation.
-- **IntentCloud Current Progress:** **53% Cumulative Completion** (PRD Week 6 target: 58%; Pi memory-layer migration pending Week 7).
+- **IntentCloud Current Progress:** **54% Cumulative Completion** (PRD Week 6 target: 58%; Pi memory-layer migration pending Week 7).
   - Phase 1 (Ingestion & Extraction): **100% Complete**
   - Phase 2 (Vector Indexing & Sparse Hashing): **100% Complete**
   - Phase 3 (Intent Extraction & Expansion): **100% Complete**
@@ -55,7 +55,7 @@
   - Academic Paper 1: **Draft finalized in IEEE LaTeX format**
 
 ### Slide 6: Live Demonstration Transition Slide
-- *[Switch to Browser: `http://localhost:3000`]*
+- *[Switch to Browser: `http://localhost:3010`]*
 - Demonstrating:
   1. Instant Document Ingestion & Text Extraction.
   2. Positive Query: Semantic + Lexical Match with Golden Sentence Highlight.
@@ -73,17 +73,16 @@
 - **Key Takeaway:** Hybrid + RRF + Cross-Encoder achieves **+3.1% Top-1 accuracy** over pure dense and sparse baselines and **100% Top-3 accuracy**, exceeding PRD $\ge 85\%$ target.
 
 ### Slide 8: Hardware Procurement & Edge Roadmap
-- **Physical Evidence:** Display unboxed Raspberry Pi 4B (8GB RAM), official USB-C power supply, aluminum heatsinks, cooling fan, and 64GB microSD card.
+- **Physical Evidence:** Display unboxed Raspberry Pi 3B board, official power supply, microSD card, and other procured accessories (heatsink and cooling fan to be ordered in Week 7).
 - **Edge Deployment Plan (Week 7–8):**
-  - Mount cooling heatsinks and active fan enclosure.
-  - Flash 64-bit Debian Bookworm OS and setup headless SSH (`intentcloud-pi`).
+  - Order heatsink and active cooling fan; flash Raspberry Pi OS and setup headless SSH (`intentcloud-pi`).
   - Migrate Qdrant embedded storage and FastAPI service to the Pi edge node.
   - Expose via outbound Cloudflare Zero-Trust Tunnel (remote HTTPS without open router ports).
 
 ### Slide 9: Research Contribution (IEEE Paper 1 Submission)
 - **Title:** *"Hybrid Neural-Lexical Information Retrieval with Reciprocal Rank Fusion and Cross-Encoder Reranking for Intent-Aware Local Document Understanding"*
 - **Target Venue:** IEEE Conference on Cognitive Computing & Applied AI.
-- **Status:** Complete IEEEtran LaTeX (`docs/paper/ieee_paper_1.tex`) and submission package prepared.
+- **Status:** Complete IEEEtran LaTeX manuscript and plain-text submission package prepared.
 
 ### Slide 10: Conclusion & Next Steps (Week 7 Roadmap)
 - Completed Phase 1–4 local pipeline running with zero cloud API dependencies.
@@ -97,19 +96,19 @@
 ### Pre-Demo Checklist (2 minutes before presentation)
 1. Ensure backend is running in terminal:
    ```bash
-   cd /Users/sujithputta/Projects/Intentcloud/intentcloud-api
+   cd <repo_root>/intentcloud-api
    source venv/bin/activate
    python main.py
    ```
 2. Ensure frontend is running:
    ```bash
-   cd /Users/sujithputta/Projects/Intentcloud/intentcloud-web
-   npm run dev
+   cd <repo_root>/intentcloud-web
+   bun run dev
    ```
 3. Open browser tabs:
-   - Tab 1: `http://localhost:3000/upload`
-   - Tab 2: `http://localhost:3000/search`
-   - Tab 3: `http://localhost:3000/dashboard`
+   - Tab 1: `http://localhost:3010/upload`
+   - Tab 2: `http://localhost:3010/search`
+   - Tab 3: `http://localhost:3010/dashboard`
 
 ---
 
@@ -155,9 +154,9 @@
 ---
 
 ### Step 5: Physical Hardware Procurement Proof
-- **Action:** Pick up and show the Raspberry Pi 4B box, board, and cooling set to the panel.
+- **Action:** Pick up and show the Raspberry Pi 3B board, power supply, and microSD card to the panel.
 - **Speaker (Vikas):**
-  > *"As documented in PRD §10.3, here is our physical Raspberry Pi 4B (8GB RAM) along with its active cooling kit and official power supply. We have validated the complete pipeline in laptop simulation mode for Review-2. In Week 7, we will assemble the heatsinks, flash 64-bit Bookworm OS, migrate the Qdrant storage onto the Pi, and expose it globally via Cloudflare Zero-Trust Tunnels for our Review-3 milestone."*
+  > *"Here is our procured Raspberry Pi 3B with official power supply and microSD card. Heatsink and cooling fan will be ordered in Week 7. We validated the complete pipeline in laptop simulation mode for Review-2. In Week 7, we will flash Raspberry Pi OS, migrate Qdrant storage onto the Pi, and expose it via Cloudflare Zero-Trust Tunnels for our Review-3 milestone."*
 
 ---
 
@@ -175,4 +174,4 @@
 
 ### Question 3: *"Why run on a Raspberry Pi when you can just host it on AWS or Google Cloud?"*
 **Answer (Vikas):**
-> *"Personal documents contain sensitive contracts, tax records, and proprietary source code. Hosting on commercial cloud services introduces ongoing subscription costs, vendor lock-in, and privacy leakage risks. An 8GB Raspberry Pi 4B consumes under 15 watts of power, costs under \$80, and runs continuously inside the user's home or office as an air-gapped, zero-trust personal knowledge server."*
+> *"Personal documents contain sensitive contracts, tax records, and proprietary source code. Hosting on commercial cloud services introduces ongoing subscription costs, vendor lock-in, and privacy leakage risks. A Raspberry Pi 3B edge node consumes under 10 watts of power, costs under \$50, and runs continuously inside the user's home or office as an air-gapped, zero-trust personal knowledge server."*
