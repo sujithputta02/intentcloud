@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 DEFAULT_API = "http://localhost:8000"
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}

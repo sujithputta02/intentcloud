@@ -12,9 +12,10 @@ import json
 import uuid
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set
 import asyncio
 import logging
+import mimetypes
 
 # Configure logging
 logging.basicConfig(
@@ -23,9 +24,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Extension definitions with safe defaults
+CODE_EXTENSIONS_MAP: Dict[str, str] = {}
+IMAGE_EXTENSIONS: Set[str] = set()
+DOCUMENT_EXTENSIONS: Set[str] = {".pdf", ".docx", ".doc", ".txt"}
+
 # Import service modules
 try:
-    from services.extraction import extract_text_from_upload
+    from services.extraction import (
+        extract_text_from_upload,
+        get_file_category,
+        CODE_EXTENSIONS_MAP,
+        IMAGE_EXTENSIONS,
+        DOCUMENT_EXTENSIONS
+    )
     from services.embeddings import generate_embeddings
     from services.qdrant_client import QdrantIndexManager
     from services.intent_parser import parse_intent_with_phi3
@@ -37,7 +49,11 @@ except ImportError as e:
 
 # Configuration
 UPLOAD_DIR = Path("./uploads")
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+ALLOWED_EXTENSIONS = (
+    set(CODE_EXTENSIONS_MAP.keys()) |
+    IMAGE_EXTENSIONS |
+    DOCUMENT_EXTENSIONS
+)
 QDRANT_COLLECTION = "intentcloud_docs"
 METADATA_FILE = UPLOAD_DIR / "metadata.json"
 
@@ -164,7 +180,15 @@ async def upload_document(
         with open(file_path, "wb") as f:
             f.write(contents)
         
-        # Save metadata immediately (topic_tags filled in after extraction).
+        category = get_file_category(original_filename)
+        initial_topics = []
+        if category == "code":
+            lang = CODE_EXTENSIONS_MAP.get(file_ext, "Code")
+            initial_topics.extend(["Source Code", lang])
+        elif category == "photo":
+            initial_topics.append("Photos & Images")
+
+        # Save metadata immediately (topic_tags enriched after extraction).
         metadata = load_metadata()
         metadata[file_id] = {
             "file_id": file_id,
@@ -173,7 +197,8 @@ async def upload_document(
             "upload_time": time.time(),
             "extension": file_ext.replace(".", "").lower(),
             "file_path": str(file_path),
-            "topic_tags": []
+            "file_type_category": category,
+            "topic_tags": initial_topics
         }
         save_metadata(metadata)
         
@@ -199,7 +224,7 @@ async def upload_document(
         logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def process_document_pipeline(file_id: str, file_path: str, filename: str):
+def process_document_pipeline(file_id: str, file_path: str, filename: str):
     """Background task: Full extraction -> embedding -> storage pipeline"""
     try:
         logger.info(f"[Pipeline] Starting for file_id={file_id}, filename={filename}")
@@ -208,7 +233,7 @@ async def process_document_pipeline(file_id: str, file_path: str, filename: str)
             logger.error("[Pipeline] Qdrant manager not initialized")
             return
         
-        text_content = extract_text_from_upload(file_path)
+        text_content = extract_text_from_upload(file_path, original_filename=filename)
         if not text_content or len(text_content.strip()) < 10:
             logger.error(f"[Error] Extraction failed or insufficient text")
             return
@@ -232,9 +257,11 @@ async def process_document_pipeline(file_id: str, file_path: str, filename: str)
         metadata = load_metadata()
         if file_id in metadata:
             if result["success"]:
-                metadata[file_id]["topic_tags"] = representation["document_keywords"]
+                current_tags = metadata[file_id].get("topic_tags", [])
+                merged_tags = list(dict.fromkeys(current_tags + representation.get("document_keywords", [])))
+                metadata[file_id]["topic_tags"] = merged_tags
                 metadata[file_id]["chunk_count"] = chunk_count
-                logger.info(f"[Step 3] Updated metadata: keywords={representation['document_keywords']}")
+                logger.info(f"[Step 3] Updated metadata: keywords={merged_tags}")
             elif result.get("duplicate"):
                 metadata[file_id]["status"] = "duplicate"
                 logger.warning(f"[Step 3] File marked as duplicate of {result['existing_file']['file_id']}")
@@ -243,6 +270,44 @@ async def process_document_pipeline(file_id: str, file_path: str, filename: str)
         logger.info(f"[Pipeline] Complete for file_id={file_id}")
     except Exception as e:
         logger.error(f"[Error] Pipeline failed: {str(e)}")
+
+@app.post("/reindex/{file_id}", tags=["Maintenance"])
+async def reindex_file(file_id: str):
+    """Re-extract and re-embed a document with updated visual & text models"""
+    metadata = load_metadata()
+    if file_id not in metadata:
+        raise HTTPException(status_code=404, detail="File ID not found in metadata")
+    
+    file_info = metadata[file_id]
+    file_path = file_info.get("file_path", "")
+    filename = file_info.get("filename", "")
+    
+    if not file_path or not Path(file_path).exists():
+        # Fallback to search in UPLOAD_DIR
+        for candidate in UPLOAD_DIR.glob(f"{file_id}.*"):
+            if candidate.is_file():
+                file_path = str(candidate)
+                break
+    
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(status_code=404, detail=f"Physical file missing on disk")
+        
+    # Remove existing Qdrant points for this file so it doesn't get flagged as duplicate
+    if qdrant_manager and qdrant_manager.client:
+        try:
+            from qdrant_client import models
+            qdrant_manager.client.delete(
+                collection_name=QDRANT_COLLECTION,
+                points_selector=models.Filter(
+                    must=[models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))]
+                )
+            )
+            logger.info(f"[Reindex] Cleared old Qdrant points for {file_id}")
+        except Exception as q_err:
+            logger.warning(f"[Reindex] Could not delete old Qdrant points: {q_err}")
+
+    process_document_pipeline(file_id, file_path, filename)
+    return {"status": "reindexed", "file_id": file_id, "filename": filename}
 
 # ============================================================================
 # Phase 2 & 4: Semantic Representation & Stats
@@ -388,6 +453,110 @@ async def download_file(file_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/preview/{file_id}", tags=["Phase 5: Preview"])
+async def preview_file(file_id: str):
+    """Serve file for inline browser preview (images, PDFs, text, code)"""
+    try:
+        metadata = load_metadata()
+        file_meta = metadata.get(file_id)
+        file_path: Optional[Path] = None
+        orig_name: str = "document"
+
+        if file_meta and Path(file_meta.get("file_path", "")).exists():
+            file_path = Path(file_meta["file_path"])
+            orig_name = file_meta.get("filename", file_path.name)
+        else:
+            matching = list(UPLOAD_DIR.glob(f"{file_id}.*"))
+            if matching:
+                file_path = matching[0]
+                orig_name = file_meta["filename"] if file_meta else file_path.name
+
+        if not file_path or not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        content_type, _ = mimetypes.guess_type(orig_name)
+        ext = file_path.suffix.lower()
+        if not content_type:
+            if ext in {".py", ".ts", ".js", ".tsx", ".jsx", ".json", ".html", ".css", ".cpp", ".c", ".go", ".rs", ".java", ".sql", ".sh", ".yaml", ".yml", ".md", ".txt"}:
+                content_type = "text/plain; charset=utf-8"
+            elif ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico"}:
+                content_type = f"image/{ext.replace('.', '')}"
+            elif ext == ".svg":
+                content_type = "image/svg+xml"
+            elif ext == ".pdf":
+                content_type = "application/pdf"
+            else:
+                content_type = "application/octet-stream"
+        elif ext in {".py", ".ts", ".js", ".tsx", ".jsx", ".json", ".sh", ".yaml", ".yml"}:
+            content_type = "text/plain; charset=utf-8"
+
+        return FileResponse(
+            path=str(file_path),
+            filename=orig_name,
+            media_type=content_type,
+            content_disposition_type="inline"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/files/{file_id}/content", tags=["Phase 5: Preview"])
+async def get_file_content(file_id: str):
+    """Retrieve raw text or code content for in-app code/text preview modal"""
+    try:
+        metadata = load_metadata()
+        file_meta = metadata.get(file_id)
+        if not file_meta or not Path(file_meta.get("file_path", "")).exists():
+            matching = list(UPLOAD_DIR.glob(f"{file_id}.*"))
+            if not matching:
+                raise HTTPException(status_code=404, detail="File not found")
+            file_path = matching[0]
+            filename = file_meta["filename"] if file_meta else file_path.name
+            category = get_file_category(filename)
+        else:
+            file_path = Path(file_meta["file_path"])
+            filename = file_meta.get("filename", file_path.name)
+            category = file_meta.get("file_type_category", get_file_category(filename))
+
+        ext = file_path.suffix.lower().replace(".", "")
+        is_binary = category in {"photo", "pdf"} or ext in {"png", "jpg", "jpeg", "webp", "gif", "pdf", "docx"}
+
+        text_content = ""
+        visual_metadata = ""
+        if not is_binary or ext == "svg":
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    text_content = f.read()
+            except UnicodeDecodeError:
+                with open(file_path, "r", encoding="latin-1") as f:
+                    text_content = f.read()
+        else:
+            # For photos/pdfs, extract any visual text / OCR / VLM description
+            try:
+                from services.extraction import extract_text_from_upload
+                visual_metadata = extract_text_from_upload(str(file_path), original_filename=filename)
+            except Exception:
+                visual_metadata = ""
+
+        return JSONResponse({
+            "file_id": file_id,
+            "filename": filename,
+            "category": category,
+            "extension": ext,
+            "is_binary": is_binary,
+            "content": text_content,
+            "visual_metadata": visual_metadata,
+            "preview_url": f"/preview/{file_id}",
+            "size_bytes": file_path.stat().st_size
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/files/{file_id}", tags=["Phase 5: Delete"])
 async def delete_file(file_id: str):
     """
@@ -467,12 +636,16 @@ async def list_uploaded_files():
             file_path = Path(info.get("file_path", ""))
             if file_path.exists() or file_id in disk_files:
                 f_target = file_path if file_path.exists() else disk_files[file_id]
+                filename = info.get("filename", f_target.name)
+                ext = info.get("extension", f_target.suffix.replace(".", "").lower())
+                cat = info.get("file_type_category") or get_file_category(filename)
                 uploaded_files.append({
                     "file_id": file_id,
-                    "name": info.get("filename", f_target.name),
+                    "name": filename,
                     "size_bytes": info.get("size_bytes", f_target.stat().st_size),
                     "modified": info.get("upload_time", f_target.stat().st_mtime),
-                    "extension": info.get("extension", f_target.suffix.replace(".", "").lower()),
+                    "extension": ext,
+                    "file_type_category": cat,
                     "topic_tags": info.get("topic_tags", []),
                 })
         
@@ -511,5 +684,13 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True
+        reload=True,
+        reload_excludes=[
+            "uploads",
+            "uploads/*",
+            "qdrant_storage",
+            "qdrant_storage/*",
+            "*.json",
+            "*.log"
+        ]
     )

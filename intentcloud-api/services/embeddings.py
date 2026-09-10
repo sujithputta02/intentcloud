@@ -445,18 +445,21 @@ def extract_keywords(
     scored: List[Tuple[str, float]] = []
 
     for term, frequency in counts.items():
+        # Ignore pure digits, timestamps, and numeric noise (e.g., "03 20.25", "12", "200")
+        letters_only = re.sub(r"[^a-zA-Z]", "", term)
+        if len(letters_only) < 2:
+            continue
 
         token_count = len(term.split())
-
         score = float(frequency)
 
         # Multi-word concepts are generally more informative.
         if token_count == 2:
             score *= 1.5
 
-        # Favor technically structured tokens.
-        if re.search(r"[\d/_.:+#-]", term):
-            score *= 1.15
+        # Slight boost for technical compound tokens containing letters
+        if re.search(r"[\d/_.:+#-]", term) and len(letters_only) >= 3:
+            score *= 1.05
 
         scored.append((term, score))
 

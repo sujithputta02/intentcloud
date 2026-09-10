@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { FolderUp, CheckCircle2, Tag, FileCode, ImageIcon, FileText } from "lucide-react";
 import { API_URL } from "@/lib/api";
+import { classifyFile, getFileCategory, CODE_EXTENSIONS, IMAGE_EXTENSIONS, DOCUMENT_EXTENSIONS } from "@/lib/topics";
 
 interface UploadResponse {
   status: string;
@@ -50,27 +52,19 @@ export default function UploadPage() {
     }
   };
 
-  const detectTopic = (name: string): string => {
-    const lower = name.toLowerCase();
-    if (lower.includes("kafka") || lower.includes("microservice") || lower.includes("stream")) {
-      return "Kafka & Microservices";
-    }
-    if (lower.includes("thesis") || lower.includes("draft") || lower.includes("paper") || lower.includes("neural")) {
-      return "Thesis Drafts";
-    }
-    if (lower.includes("report") || lower.includes("finance") || lower.includes("annual") || lower.includes("quarter")) {
-      return "Business Reports";
-    }
-    if (lower.includes("doc") || lower.includes("api") || lower.includes("guide") || lower.includes("spec")) {
-      return "Project Docs";
-    }
-    return "Cognitive Memory";
-  };
-
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const isSupportedExtension = (ext: string): boolean => {
+    const clean = ext.toLowerCase().replace(".", "");
+    return (
+      DOCUMENT_EXTENSIONS.has(clean) ||
+      CODE_EXTENSIONS.has(clean) ||
+      IMAGE_EXTENSIONS.has(clean)
+    );
   };
 
   const processFiles = async (fileList: File[]) => {
@@ -78,7 +72,7 @@ export default function UploadPage() {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       const itemId = Math.random().toString(36).substring(2, 9);
 
-      if (!["pdf", "docx", "txt"].includes(ext)) {
+      if (!isSupportedExtension(ext)) {
         setItems((prev) => [
           {
             id: itemId,
@@ -87,7 +81,7 @@ export default function UploadPage() {
             extension: ext,
             progress: 100,
             stage: "error",
-            errorMessage: `Unsupported file format (.${ext}). Only PDF, DOCX, and TXT are accepted.`,
+            errorMessage: `Unsupported file format (.${ext}). Accepted: PDF, DOCX, TXT, Code files (.py, .ts, .js, .json, etc.), and Photos (.png, .jpg, etc.).`,
           },
           ...prev,
         ]);
@@ -109,10 +103,24 @@ export default function UploadPage() {
         const formData = new FormData();
         formData.append("file", file);
 
-        const response = await fetch(`${API_URL}/upload`, {
-          method: "POST",
-          body: formData,
-        });
+        let response: Response;
+        try {
+          response = await fetch(`${API_URL}/upload`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok && API_URL !== "http://localhost:8000") {
+            response = await fetch("http://localhost:8000/upload", {
+              method: "POST",
+              body: formData,
+            });
+          }
+        } catch (fetchErr) {
+          response = await fetch("http://localhost:8000/upload", {
+            method: "POST",
+            body: formData,
+          });
+        }
 
         if (!response.ok) {
           throw new Error(`Upload failed with status ${response.status}`);
@@ -150,7 +158,7 @@ export default function UploadPage() {
                   ...item,
                   progress: 100,
                   stage: "ready",
-                  topicTag: detectTopic(data.filename || file.name),
+                  topicTag: classifyFile(data.filename || file.name, [], ext),
                 }
               : item
           )
@@ -172,13 +180,18 @@ export default function UploadPage() {
   };
 
   const getBadgeColor = (ext: string) => {
-    switch (ext.toLowerCase()) {
+    const category = getFileCategory(ext, ext);
+    switch (category) {
       case "pdf":
         return "bg-[#C96A45]/15 text-[#C96A45] dark:text-[#E08556]";
       case "docx":
         return "bg-[#3B6FA0]/15 text-[#3B6FA0] dark:text-[#5B8FDB]";
       case "txt":
         return "bg-[#5C8A5C]/15 text-[#5C8A5C] dark:text-[#7DB37D]";
+      case "code":
+        return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
+      case "photo":
+        return "bg-purple-500/15 text-purple-600 dark:text-purple-400";
       default:
         return "bg-[var(--border-subtle)] text-[var(--text-secondary)]";
     }
@@ -190,10 +203,10 @@ export default function UploadPage() {
         {/* Header */}
         <div className="text-center sm:text-left space-y-2">
           <h1 className="font-fraunces text-3xl sm:text-4xl font-bold tracking-tight">
-            Upload Documents
+            Upload Documents & Assets
           </h1>
           <p className="text-[var(--text-secondary)] text-base">
-            Upload your files into IntentCloud. Text will be extracted, chunked, and embedded into local Qdrant vectors automatically.
+            Upload your files into IntentCloud. Text and metadata will be extracted, chunked, and embedded into local Qdrant vectors automatically.
           </p>
         </div>
 
@@ -213,14 +226,14 @@ export default function UploadPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.docx,.txt"
+            accept=".pdf,.docx,.txt,.md,.py,.ts,.js,.tsx,.jsx,.json,.html,.css,.cpp,.c,.go,.rs,.java,.sql,.sh,.yaml,.yml,.png,.jpg,.jpeg,.webp,.svg,.gif"
             onChange={handleFileInput}
             className="hidden"
           />
 
           <div className="flex flex-col items-center justify-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center text-3xl">
-              📂
+            <div className="w-16 h-16 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center">
+              <FolderUp className="w-8 h-8 text-[var(--accent)]" />
             </div>
 
             <div className="space-y-1">
@@ -239,7 +252,7 @@ export default function UploadPage() {
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] pt-2">
-              Accepted file formats: <strong className="font-semibold">PDF, DOCX, TXT</strong> (up to 50MB)
+              Accepted file formats: <strong className="font-semibold">PDF, DOCX, TXT, Code (.py, .ts, .json, etc.), and Photos</strong> (up to 50MB)
             </p>
           </div>
         </div>
@@ -301,8 +314,8 @@ export default function UploadPage() {
                         {item.stage === "extracting" && "Extracting text..."}
                         {item.stage === "indexing" && "Embedding vectors..."}
                         {item.stage === "ready" && (
-                          <span className="text-[var(--success)] font-semibold">
-                            ✓ Ingested
+                          <span className="inline-flex items-center gap-1 text-[var(--success)] font-semibold">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Ingested
                           </span>
                         )}
                         {item.stage === "error" && (
@@ -323,8 +336,8 @@ export default function UploadPage() {
                   {/* Auto-detected topic badge */}
                   {item.stage === "ready" && item.topicTag && (
                     <div className="sm:text-right shrink-0">
-                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20">
-                        🏷️ {item.topicTag}
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20">
+                        <Tag className="w-3 h-3" /> {item.topicTag}
                       </span>
                     </div>
                   )}

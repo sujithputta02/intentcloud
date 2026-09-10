@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Sparkles, Zap, Brain, Binary, Shuffle, Search, AlertTriangle, Clock, Cpu, Lightbulb, Download } from "lucide-react";
 import { API_URL } from "@/lib/api";
+import { getFileCategory } from "@/lib/topics";
 
 interface SearchResult {
   file_id: string;
@@ -98,13 +100,18 @@ export default function SearchPage() {
 
   const getBadgeColor = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase() || "";
-    switch (ext) {
+    const category = getFileCategory(filename, ext);
+    switch (category) {
       case "pdf":
         return "bg-[#C96A45]/15 text-[#C96A45] dark:text-[#E08556] border-[#C96A45]/30";
       case "docx":
         return "bg-[#3B6FA0]/15 text-[#3B6FA0] dark:text-[#5B8FDB] border-[#3B6FA0]/30";
       case "txt":
         return "bg-[#5C8A5C]/15 text-[#5C8A5C] dark:text-[#7DB37D] border-[#5C8A5C]/30";
+      case "code":
+        return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30";
+      case "photo":
+        return "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30";
       default:
         return "bg-[var(--border-subtle)] text-[var(--text-secondary)] border-transparent";
     }
@@ -136,7 +143,7 @@ export default function SearchPage() {
         {/* Title Header */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20 mb-1">
-            <span>✨ Phase 4</span>
+            <span className="inline-flex items-center gap-1"><Sparkles className="w-3.5 h-3.5" /> Phase 4</span>
             <span>•</span>
             <span>Hybrid Dense + Sparse Reranking</span>
           </div>
@@ -153,25 +160,29 @@ export default function SearchPage() {
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[var(--text-secondary)] px-2 font-semibold">Mode:</span>
             {[
-              { id: "hybrid", label: "⚡ Hybrid + Rerank (Phase 4)", desc: "Dense + Sparse + RRF + Cross-Encoder" },
-              { id: "dense", label: "🧠 Dense Semantic", desc: "all-MiniLM-L6-v2" },
-              { id: "sparse", label: "🔤 Sparse Keyword", desc: "Feature Hash BM25" },
-              { id: "rrf_only", label: "🔀 RRF Fusion", desc: "Dense + Sparse (No Rerank)" },
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => handleModeChange(mode.id as any)}
-                title={mode.desc}
-                className={`px-3 py-1.5 rounded-xl transition ${
-                  searchMode === mode.id
-                    ? "bg-[var(--accent)] text-white font-semibold shadow-sm"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)]"
-                }`}
-              >
-                {mode.label}
-              </button>
-            ))}
+              { id: "hybrid", label: "Hybrid + Rerank (Phase 4)", icon: Zap, desc: "Dense + Sparse + RRF + Cross-Encoder" },
+              { id: "dense", label: "Dense Semantic", icon: Brain, desc: "all-MiniLM-L6-v2" },
+              { id: "sparse", label: "Sparse Keyword", icon: Binary, desc: "Feature Hash BM25" },
+              { id: "rrf_only", label: "RRF Fusion", icon: Shuffle, desc: "Dense + Sparse (No Rerank)" },
+            ].map((mode) => {
+              const ModeIcon = mode.icon;
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => handleModeChange(mode.id as any)}
+                  title={mode.desc}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition ${
+                    searchMode === mode.id
+                      ? "bg-[var(--accent)] text-white font-semibold shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)]"
+                  }`}
+                >
+                  <ModeIcon className="w-3.5 h-3.5" />
+                  <span>{mode.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex items-center gap-2 pr-2">
@@ -199,7 +210,7 @@ export default function SearchPage() {
         {/* Hero Search Bar */}
         <form onSubmit={handleFormSubmit} className="relative w-full">
           <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-[var(--bg-surface)] border-2 border-[var(--border-subtle)] focus-within:border-[var(--accent)] shadow-sm transition">
-            <span className="pl-3 text-xl text-[var(--text-secondary)]">🔍</span>
+            <Search className="w-5 h-5 text-[var(--text-secondary)] ml-3 shrink-0" />
             <input
               type="text"
               value={query}
@@ -237,7 +248,7 @@ export default function SearchPage() {
             {/* Confidence Warning Banner if confidence is low */}
             {!searchResults.is_confident_match && (
               <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 text-amber-700 dark:text-amber-300 flex items-start gap-3 shadow-sm">
-                <span className="text-2xl shrink-0">⚠️</span>
+                <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
                 <div className="space-y-1 text-sm">
                   <h4 className="font-bold font-fraunces">No Confident Match Found</h4>
                   <p className="text-xs opacity-90 leading-relaxed">
@@ -254,19 +265,19 @@ export default function SearchPage() {
             <div className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">🧠</span>
+                  <Brain className="w-4 h-4 text-[var(--accent)]" />
                   <h3 className="font-fraunces font-bold text-sm text-[var(--text-primary)]">
                     Cognitive Intent & Pipeline Metrics
                   </h3>
                 </div>
                 {searchResults.metrics && (
                   <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
-                    <span className="px-2 py-0.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-subtle)]">
-                      ⏱️ {searchResults.metrics.latency_ms} ms
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-subtle)]">
+                      <Clock className="w-3 h-3 text-[var(--text-secondary)]" /> {searchResults.metrics.latency_ms} ms
                     </span>
                     {searchResults.metrics.device && (
-                      <span className="px-2 py-0.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-subtle)] uppercase">
-                        ⚙️ {searchResults.metrics.device}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-subtle)] uppercase">
+                        <Cpu className="w-3 h-3 text-[var(--text-secondary)]" /> {searchResults.metrics.device}
                       </span>
                     )}
                   </div>
@@ -378,7 +389,7 @@ export default function SearchPage() {
                         {/* Load-bearing Explanation & Keywords */}
                         <div className="pt-2 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                           <div className="flex items-start gap-2 text-[var(--text-secondary)] flex-1">
-                            <span className="text-[var(--accent)] text-sm">💡</span>
+                            <Lightbulb className="w-4 h-4 text-[var(--accent)] shrink-0 mt-0.5" />
                             <p className="leading-relaxed">
                               <strong className="font-semibold text-[var(--text-primary)]">Why this matched:</strong> {res.explanation}
                             </p>
@@ -396,7 +407,8 @@ export default function SearchPage() {
                               rel="noreferrer"
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition shadow-sm text-xs"
                             >
-                              📥 Download Original File
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Original File</span>
                             </a>
                           </div>
                         </div>

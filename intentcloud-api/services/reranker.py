@@ -18,20 +18,9 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    import numpy as np
-except ImportError:
-    np = None  # type: ignore
-
-try:
-    import torch
-except ImportError:
-    torch = None  # type: ignore
-
-try:
-    from sentence_transformers import CrossEncoder
-except ImportError:
-    CrossEncoder = None  # type: ignore
+import numpy as np
+import torch
+from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -122,15 +111,19 @@ class RerankerManager:
         candidates: List[Dict],
         top_k: int = 3,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        intent_query: Optional[str] = None,
     ) -> Tuple[List[Dict], bool, str]:
         """
         Rerank hybrid candidates using the Cross-Encoder.
+        Supports dual scoring (raw conversational query + clean intent query)
+        and blends cross-encoder logits with normalized RRF retrieval scores.
 
         Args:
             query: Natural language user query
             candidates: List of candidate dicts from RRF fusion / search
             top_k: Number of final results to return (default: 3)
             confidence_threshold: Minimum normalized confidence score required
+            intent_query: Optional clean intent query extracted from intent parser
 
         Returns:
             Tuple of (reranked_results, is_confident_match, confidence_message)
@@ -143,41 +136,76 @@ class RerankerManager:
         model = self.get_model()
 
         # Build (query, text) pairs
-        pairs = []
+        raw_pairs = []
+        intent_pairs = []
+        clean_intent = intent_query.strip() if intent_query else ""
+        has_distinct_intent = bool(clean_intent and clean_intent.lower() != (query or "").strip().lower())
+
         for cand in candidates_to_score:
             text = cand.get("chunk_text") or cand.get("sentence_text") or cand.get("filename", "")
-            pairs.append((query, text))
+            raw_pairs.append((query, text))
+            if has_distinct_intent:
+                intent_pairs.append((clean_intent, text))
 
         try:
-            raw_scores = model.predict(pairs, show_progress_bar=False)
+            raw_scores = model.predict(raw_pairs, show_progress_bar=False)
             if np is not None and isinstance(raw_scores, getattr(np, "floating", float)):
                 raw_scores = [float(raw_scores)]
             elif isinstance(raw_scores, (int, float)):
                 raw_scores = [float(raw_scores)]
             else:
                 raw_scores = [float(s) for s in raw_scores]
+
+            if has_distinct_intent and intent_pairs:
+                intent_scores = model.predict(intent_pairs, show_progress_bar=False)
+                if np is not None and isinstance(intent_scores, getattr(np, "floating", float)):
+                    intent_scores = [float(intent_scores)]
+                elif isinstance(intent_scores, (int, float)):
+                    intent_scores = [float(intent_scores)]
+                else:
+                    intent_scores = [float(s) for s in intent_scores]
+            else:
+                intent_scores = raw_scores
+
         except Exception as exc:
             logger.error("[Reranker] Cross-encoder scoring failed: %s", exc)
             # Fallback to existing candidate ordering; do NOT falsely mark confident
             return candidates[:top_k], False, "Reranker scoring fallback (unconfident)"
 
-        # Attach scores to candidates
+        # Attach scores to candidates with dual scoring and RRF blend
+        # Theoretical max RRF for candidate at rank 1 in both dense and sparse is ~1/(60+1) + 1/(60+1) = 0.0328
+        MAX_RRF = 0.0328
+
         scored_candidates = []
-        for cand, logit_score in zip(candidates_to_score, raw_scores):
-            norm_score = sigmoid(logit_score)
+        for i, cand in enumerate(candidates_to_score):
+            raw_logit = raw_scores[i] if i < len(raw_scores) else -10.0
+            int_logit = intent_scores[i] if i < len(intent_scores) else raw_logit
+            best_logit = max(raw_logit, int_logit)
+
+            # Calibrated cross-encoder score centered for ms-marco-MiniLM logits
+            # Logit >= 2.0 -> >82%, logit 0.0 -> ~62%, logit -2.0 -> ~38%, logit < -8.0 -> <2%
+            cross_prob = sigmoid((best_logit + 1.0) / 2.0)
+
+            # Get stage-1 RRF score (normalized against max possible score)
+            rrf_raw = float(cand.get("rrf_score", 0.0))
+            rrf_norm = min(1.0, rrf_raw / MAX_RRF) if MAX_RRF > 0 else 0.0
+
+            # Blended score: 85% calibrated cross-encoder + 15% stage-1 RRF
+            final_score = 0.85 * cross_prob + 0.15 * rrf_norm
+            final_score = max(0.0, min(1.0, final_score))
+
             item = dict(cand)
-            item["rerank_logit"] = round(logit_score, 4)
-            item["rerank_score"] = round(norm_score, 4)
-            # Use normalized rerank score as primary relevance score
-            item["relevance_score"] = round(norm_score, 4)
-            item["relevance_percentage"] = int(round(norm_score * 100))
+            item["rerank_logit"] = round(best_logit, 4)
+            item["rerank_score"] = round(final_score, 4)
+            item["relevance_score"] = round(final_score, 4)
+            item["relevance_percentage"] = round(final_score * 100)
             scored_candidates.append(item)
 
-        # Sort descending by cross-encoder score
-        scored_candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
+        # Sort descending by final blended relevance score
+        scored_candidates.sort(key=lambda x: x["relevance_score"], reverse=True)
 
         # Determine confidence status based on top score
-        top_score = scored_candidates[0]["rerank_score"] if scored_candidates else 0.0
+        top_score = scored_candidates[0]["relevance_score"] if scored_candidates else 0.0
         is_confident = top_score >= confidence_threshold
 
         if is_confident:

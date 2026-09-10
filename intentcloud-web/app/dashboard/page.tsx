@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TOPIC_DEFINITIONS, classifyFile, countFilesByTopic } from "@/lib/topics";
+import { Zap, GraduationCap, Cpu, BarChart3, Cloud, Folder, Download, Trash2, Layers, Code2, ImageIcon, FileText, FileCode, Eye } from "lucide-react";
+import { getAllTopicDefinitions, classifyFile, countFilesByTopic, getFileCategory } from "@/lib/topics";
 import { API_URL } from "@/lib/api";
+import FilePreviewModal, { PreviewableFile } from "@/components/FilePreviewModal";
 
 interface StatsResponse {
   total_vectors: number;
@@ -39,6 +41,7 @@ export default function DashboardPage() {
   const [activeTopicFilter, setActiveTopicFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<PreviewableFile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStatsAndFiles = async () => {
@@ -50,12 +53,31 @@ export default function DashboardPage() {
 
       if (statsRes && statsRes.ok) {
         const statsData: StatsResponse = await statsRes.json();
-        setStats(statsData);
+        setStats((prev) => {
+          if (
+            prev &&
+            prev.total_vectors === statsData.total_vectors &&
+            prev.total_files === statsData.total_files &&
+            prev.status === statsData.status
+          ) {
+            return prev;
+          }
+          return statsData;
+        });
       }
 
       if (filesRes && filesRes.ok) {
         const filesData: FileResponse = await filesRes.json();
-        setFiles(filesData.uploaded_files || []);
+        const incoming = filesData.uploaded_files || [];
+        setFiles((prev) => {
+          if (
+            prev.length === incoming.length &&
+            prev.every((f, i) => f.file_id === incoming[i]?.file_id && f.modified === incoming[i]?.modified)
+          ) {
+            return prev;
+          }
+          return incoming;
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard data");
@@ -66,7 +88,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchStatsAndFiles();
-    const interval = setInterval(fetchStatsAndFiles, 10000);
+    const interval = setInterval(fetchStatsAndFiles, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -113,41 +135,83 @@ export default function DashboardPage() {
   };
 
   const getBadgeColor = (ext: string) => {
-    switch (ext.toLowerCase()) {
+    const category = getFileCategory(ext, ext);
+    switch (category) {
       case "pdf":
         return "bg-[#C96A45]/15 text-[#C96A45] dark:text-[#E08556]";
       case "docx":
         return "bg-[#3B6FA0]/15 text-[#3B6FA0] dark:text-[#5B8FDB]";
       case "txt":
         return "bg-[#5C8A5C]/15 text-[#5C8A5C] dark:text-[#7DB37D]";
+      case "code":
+        return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
+      case "photo":
+        return "bg-purple-500/15 text-purple-600 dark:text-purple-400";
       default:
         return "bg-[var(--border-subtle)] text-[var(--text-secondary)]";
     }
   };
 
-  const topicCounts = countFilesByTopic(files);
+  const getCategoryIcon = (name: string, ext?: string) => {
+    const cat = getFileCategory(name, ext);
+    if (cat === "code") return <Code2 className="w-4 h-4 text-emerald-500" />;
+    if (cat === "photo") return <ImageIcon className="w-4 h-4 text-purple-500" />;
+    if (cat === "pdf") return <FileText className="w-4 h-4 text-[#C96A45]" />;
+    return <FileText className="w-4 h-4 text-[var(--accent)]" />;
+  };
 
-  const topicsWithCounts = TOPIC_DEFINITIONS.map((topic) => ({
+  const topicCounts = countFilesByTopic(files);
+  const dynamicTopics = getAllTopicDefinitions(files);
+
+  const getTopicIcon = (title: string) => {
+    switch (title) {
+      case "Kafka & Microservices":
+        return <Zap className="w-5 h-5 text-amber-500" />;
+      case "Thesis Drafts":
+        return <GraduationCap className="w-5 h-5 text-blue-500" />;
+      case "ML Models & AI":
+        return <Cpu className="w-5 h-5 text-purple-500" />;
+      case "Business Reports":
+        return <BarChart3 className="w-5 h-5 text-emerald-500" />;
+      case "Cloud & DevOps":
+        return <Cloud className="w-5 h-5 text-cyan-500" />;
+      case "Source Code & Scripts":
+        return <Code2 className="w-5 h-5 text-emerald-500" />;
+      case "Photos & Media Assets":
+        return <ImageIcon className="w-5 h-5 text-purple-500" />;
+      default:
+        return <Folder className="w-5 h-5 text-neutral-400" />;
+    }
+  };
+
+  const topicsWithCounts = dynamicTopics.map((topic) => ({
     name: topic.title,
-    icon:
-      topic.title === "Kafka & Microservices"
-        ? "⚡"
-        : topic.title === "Thesis Drafts"
-        ? "🎓"
-        : topic.title === "ML Models & AI"
-        ? "🤖"
-        : topic.title === "Business Reports"
-        ? "📊"
-        : "📁",
     count: topicCounts[topic.title] ?? 0,
+    color: topic.color,
+    iconColor: topic.iconColor,
   }));
+
+  // Dynamically calculate available filter pills based on files uploaded
+  const availableFilterPills = ["All"];
+  const fileCategories = new Set(files.map((f) => getFileCategory(f.name, f.extension)));
+  if (fileCategories.has("pdf")) availableFilterPills.push("PDF");
+  if (fileCategories.has("docx")) availableFilterPills.push("DOCX");
+  if (fileCategories.has("txt")) availableFilterPills.push("TXT");
+  if (fileCategories.has("code")) availableFilterPills.push("Code");
+  if (fileCategories.has("photo")) availableFilterPills.push("Photos");
 
   const filteredFiles = files.filter((f) => {
     if (activeTopicFilter) {
-      const fileTopic = classifyFile(f.name, f.topic_tags ?? []);
+      const fileTopic = classifyFile(f.name, f.topic_tags ?? [], f.extension);
       if (fileTopic !== activeTopicFilter) return false;
     }
     if (activeFilter === "All") return true;
+    const cat = getFileCategory(f.name, f.extension);
+    if (activeFilter === "PDF") return cat === "pdf";
+    if (activeFilter === "DOCX") return cat === "docx";
+    if (activeFilter === "TXT") return cat === "txt";
+    if (activeFilter === "Code") return cat === "code";
+    if (activeFilter === "Photos") return cat === "photo";
     return f.extension.toLowerCase() === activeFilter.toLowerCase();
   });
 
@@ -161,7 +225,7 @@ export default function DashboardPage() {
         >
           <div className="max-w-2xl space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 border border-white/20 mb-1">
-              <span>⚡ Phase 4</span>
+              <span className="inline-flex items-center gap-1"><Zap className="w-3.5 h-3.5 text-amber-300" /> Phase 4</span>
               <span>•</span>
               <span>Hybrid Memory Layer (Qdrant + RRF + Cross-Encoder)</span>
             </div>
@@ -270,7 +334,9 @@ export default function DashboardPage() {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl">{t.icon}</span>
+                  <div className="w-10 h-10 rounded-xl bg-[var(--bg-base)] flex items-center justify-center border border-[var(--border-subtle)]">
+                    {getTopicIcon(t.name)}
+                  </div>
                   <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
                     {t.count} files
                   </span>
@@ -302,8 +368,8 @@ export default function DashboardPage() {
             </div>
 
             {/* Filter Pills */}
-            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-semibold">
-              {["All", "PDF", "DOCX", "TXT"].map((pill) => (
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-semibold overflow-x-auto">
+              {availableFilterPills.map((pill) => (
                 <button
                   key={pill}
                   type="button"
@@ -311,7 +377,7 @@ export default function DashboardPage() {
                     setActiveFilter(pill);
                     setActiveTopicFilter(null);
                   }}
-                  className={`px-3.5 py-1.5 rounded-lg transition ${
+                  className={`px-3.5 py-1.5 rounded-lg whitespace-nowrap transition ${
                     activeFilter === pill
                       ? "bg-[var(--accent)] text-white shadow-sm"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -337,13 +403,18 @@ export default function DashboardPage() {
                 >
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${getBadgeColor(
-                          file.extension
-                        )}`}
-                      >
-                        {file.extension}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] flex items-center justify-center shrink-0">
+                          {getCategoryIcon(file.name, file.extension)}
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${getBadgeColor(
+                            file.extension
+                          )}`}
+                        >
+                          {file.extension}
+                        </span>
+                      </div>
                       <span className="text-xs text-[var(--text-secondary)]">
                         {getRelativeTime(file.modified)}
                       </span>
@@ -362,22 +433,33 @@ export default function DashboardPage() {
                       {formatSize(file.size_bytes)}
                     </span>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPreviewFile(file)}
+                        type="button"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-primary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/40 transition"
+                        title={`Preview ${file.name}`}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview</span>
+                      </button>
+
                       <a
                         href={`${API_URL}/download/${file.file_id}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-2.5 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-primary)] hover:text-[var(--accent)] transition"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-primary)] hover:text-[var(--accent)] transition"
                       >
-                        📥 Download
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
                       </a>
                       <button
                         onClick={() => handleDeleteFile(file.file_id, file.name)}
                         disabled={deletingId === file.file_id}
                         type="button"
-                        className="px-2 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-red-500 hover:bg-red-500/10 transition"
+                        className="p-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-red-500 hover:bg-red-500/10 transition"
                         title="Delete file"
                       >
-                        🗑️
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -397,6 +479,12 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Interactive File Preview Modal */}
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+      />
     </div>
   );
 }

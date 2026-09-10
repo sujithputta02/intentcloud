@@ -11,7 +11,9 @@
   "exclude": [
     "**/node_modules",
     "**/__pycache__",
-    "intentcloud-api/venv"
+    "intentcloud-api/venv",
+    "**/__pyrefly_virtual__/**",
+    "**/inmemory/**"
   ],
   "reportMissingImports": "none",
   "reportMissingModuleSource": "none"

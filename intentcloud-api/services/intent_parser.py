@@ -26,6 +26,7 @@ STOP_WORDS = {
     "that", "these", "those", "please", "document", "documents", "doc",
     "file", "files", "report", "reports", "material", "notes", "guide",
     "guides", "paper", "papers", "compare", "summarize", "list",
+    "need", "want", "give", "tell", "looking", "would", "like", "get"
 }
 
 # Boilerplate the small model sometimes copies from the prompt/schema.

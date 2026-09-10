@@ -94,22 +94,81 @@ def reciprocal_rank_fusion(
     return fused_candidates
 
 
+SPELLING_MAP = {
+    "colour": "color",
+    "colours": "colors",
+    "behaviour": "behavior",
+    "synchronise": "synchronize",
+    "optimise": "optimize",
+}
+
+
+def normalize_spelling(text: str) -> str:
+    """Normalize common UK/US spelling variants for consistent embedding alignment."""
+    if not text:
+        return ""
+    words = text.split()
+    return " ".join(SPELLING_MAP.get(w.lower(), w) for w in words)
+
+
+def build_intent_clean_query(query: str, intent_data: Optional[Dict] = None) -> str:
+    """Extract clean intent search query without conversational filler words."""
+    import re
+    # 1. Strip conversational filler prefix & suffix
+    clean = re.sub(
+        r"^(i need an?|i want an?|show me|find me|give me|where is|can you find|search for|looking for)\s+",
+        "",
+        query,
+        flags=re.IGNORECASE
+    )
+    clean = re.sub(r"\s+(file|document|photo|image|picture)\s*\??$", "", clean, flags=re.IGNORECASE).strip(" ?.")
+    clean = normalize_spelling(clean)
+
+    # 2. Also check if parsed intent has high-value topical keywords
+    intent_data = intent_data or {}
+    keywords = intent_data.get("keywords") or []
+    meaningful_kw = [
+        normalize_spelling(str(k))
+        for k in keywords
+        if str(k).lower() not in {"need", "want", "file", "document", "photo", "image", "find", "show", "give"}
+    ]
+
+    if clean and len(clean.split()) >= 2:
+        return clean
+
+    if meaningful_kw:
+        return " ".join(meaningful_kw)
+
+    return clean or normalize_spelling(query)
+
+
 def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str:
     """
     Expand the user query with parsed intent for embedding/sparse retrieval.
     Improves natural-language queries that omit exact document keywords.
     """
+    clean_norm = normalize_spelling(query)
     intent_data = intent_data or {}
     topic = str(intent_data.get("topic", "")).strip()
     keywords = intent_data.get("keywords") or []
 
-    if not topic or topic.lower() == query.lower().strip().lower():
-        return query
+    parts = [clean_norm]
+    if topic and topic.lower() not in clean_norm.lower():
+        parts.append(normalize_spelling(topic))
+    if keywords:
+        kw_text = " ".join(normalize_spelling(str(k)) for k in keywords[:6] if k)
+        if kw_text and kw_text.lower() not in clean_norm.lower():
+            parts.append(kw_text)
 
-    keyword_text = " ".join(str(k) for k in keywords[:6] if k)
-    parts = [query.strip(), topic]
-    if keyword_text:
-        parts.append(keyword_text)
+    # Detect visual intent and expand with visual search terms
+    visual_terms = [
+        "color", "colour", "palette", "swatch", "hex",
+        "diagram", "topology", "architecture", "image",
+        "photo", "slide", "brand deck", "deck", "presentation"
+    ]
+    if any(v in clean_norm.lower() for v in visual_terms):
+        parts.append("visual concept image photo")
+
     return ". ".join(parts)
 
 
@@ -265,13 +324,15 @@ def execute_search_pipeline(
                     },
                 }
 
-            # Cross-Encoder Reranking
+            # Cross-Encoder Reranking with dual query alignment
             reranker = get_reranker()
+            intent_query = build_intent_clean_query(query, intent_data)
             final_results, is_confident, confidence_msg = reranker.rerank_candidates(
                 query=query,
                 candidates=fused_candidates,
                 top_k=top_k * 3,
                 confidence_threshold=confidence_threshold,
+                intent_query=intent_query,
             )
             final_results = deduplicate_results_by_file(final_results, top_k)
 

@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
-import { TOPIC_DEFINITIONS, classifyFile, countFilesByTopic } from "@/lib/topics";
+import { Plus, X, Bell, Search, FileText, Download, Trash2, Folder, UploadCloud, Code2, Image as ImageIcon, Eye } from "lucide-react";
+import { getAllTopicDefinitions, getFileCategory, classifyFile, countFilesByTopic } from "@/lib/topics";
 import { API_URL } from "@/lib/api";
+import FilePreviewModal, { PreviewableFile } from "@/components/FilePreviewModal";
 
 interface UploadedFile {
   file_id: string;
@@ -65,7 +67,10 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<PreviewableFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const stateRef = useRef({ searchResults, uploadModalOpen, previewFile });
+  stateRef.current = { searchResults, uploadModalOpen, previewFile };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -81,17 +86,35 @@ export default function Home() {
 
       if (statsRes && statsRes.ok) {
         const statsData = await statsRes.json();
-        setStats(statsData);
+        setStats((prev) => {
+          if (
+            prev &&
+            prev.total_vectors === statsData.total_vectors &&
+            prev.total_files === statsData.total_files &&
+            prev.status === statsData.status
+          ) {
+            return prev;
+          }
+          return statsData;
+        });
       }
 
       if (filesRes && filesRes.ok) {
         const filesData = await filesRes.json();
-        setFiles(filesData.uploaded_files || []);
-      } else {
-        setFiles([]);
+        const incoming = filesData.uploaded_files || [];
+        setFiles((prev) => {
+          // Only update if files actually changed to prevent DOM re-renders and buffering flicker
+          if (
+            prev.length === incoming.length &&
+            prev.every((f, i) => f.file_id === incoming[i]?.file_id && f.modified === incoming[i]?.modified)
+          ) {
+            return prev;
+          }
+          return incoming;
+        });
       }
     } catch {
-      setFiles([]);
+      // Preserve existing files on network hiccups instead of clearing state
     } finally {
       setLoading(false);
     }
@@ -99,7 +122,12 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 8000);
+    // Non-intrusive polling interval that pauses when search results or modals are active
+    const interval = setInterval(() => {
+      if (!stateRef.current.searchResults && !stateRef.current.uploadModalOpen && !stateRef.current.previewFile) {
+        fetchData();
+      }
+    }, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -141,10 +169,24 @@ export default function Home() {
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await fetch(`${API_URL}/upload`, {
-          method: "POST",
-          body: formData,
-        });
+        let res: Response;
+        try {
+          res = await fetch(`${API_URL}/upload`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok && API_URL !== "http://localhost:8000") {
+            res = await fetch("http://localhost:8000/upload", {
+              method: "POST",
+              body: formData,
+            });
+          }
+        } catch (fetchErr) {
+          res = await fetch("http://localhost:8000/upload", {
+            method: "POST",
+            body: formData,
+          });
+        }
         if (res.ok) {
           uploadedCount++;
         } else {
@@ -207,9 +249,10 @@ export default function Home() {
     return `Uploaded ${Math.floor(hours / 24)} days ago`;
   };
 
+  const allTopicDefinitions = getAllTopicDefinitions(files);
   const topicCounts = countFilesByTopic(files);
 
-  const dynamicTopicCards: TopicCluster[] = TOPIC_DEFINITIONS.map((topic) => ({
+  const dynamicTopicCards: TopicCluster[] = allTopicDefinitions.map((topic) => ({
     title: topic.title,
     filesCount: topicCounts[topic.title] ?? 0,
     color: topic.color,
@@ -219,18 +262,39 @@ export default function Home() {
 
   const totalIndexedTopics = dynamicTopicCards.filter((t) => t.filesCount > 0).length;
 
+  // Dynamically determine available filter pills based on files present
+  const availableFilterPills = ["All files"];
+  const hasPdf = files.some((f) => getFileCategory(f.name, f.extension) === "pdf");
+  const hasDocx = files.some((f) => getFileCategory(f.name, f.extension) === "docx");
+  const hasTxt = files.some((f) => getFileCategory(f.name, f.extension) === "txt");
+  const hasCode = files.some((f) => getFileCategory(f.name, f.extension) === "code");
+  const hasPhotos = files.some((f) => getFileCategory(f.name, f.extension) === "photo");
+
+  if (hasPdf) availableFilterPills.push("PDF");
+  if (hasDocx) availableFilterPills.push("DOCX");
+  if (hasTxt) availableFilterPills.push("TXT");
+  if (hasCode) availableFilterPills.push("Code");
+  if (hasPhotos) availableFilterPills.push("Photos");
+
+  // If no files yet, show standard starter pills
+  if (availableFilterPills.length === 1) {
+    availableFilterPills.push("PDF", "DOCX", "Code", "Photos");
+  }
+
   const displayFiles = files.filter((f) => {
-    const ext = f.extension?.toLowerCase() || "";
+    const cat = getFileCategory(f.name, f.extension);
 
     if (activeTopicFilter) {
-      const fileTopic = classifyFile(f.name, f.topic_tags ?? []);
+      const fileTopic = classifyFile(f.name, f.topic_tags ?? [], f.extension);
       if (fileTopic !== activeTopicFilter) return false;
     }
 
     if (activeFilter === "All files") return true;
-    if (activeFilter === "PDF") return ext === "pdf";
-    if (activeFilter === "Photos" || activeFilter === "DOCX") return ext === "docx";
-    if (activeFilter === "Vectors" || activeFilter === "TXT") return ext === "txt";
+    if (activeFilter === "PDF") return cat === "pdf";
+    if (activeFilter === "DOCX") return cat === "docx";
+    if (activeFilter === "TXT") return cat === "txt";
+    if (activeFilter === "Code") return cat === "code";
+    if (activeFilter === "Photos") return cat === "photo";
     return true;
   });
 
@@ -254,7 +318,7 @@ export default function Home() {
             }}
           />
 
-          <div className="relative z-10 flex items-start justify-between gap-4 mb-10">
+          <div className="relative z-30 flex items-start justify-between gap-4 mb-10">
             <div>
               <h1 className="font-fraunces text-3xl sm:text-4xl font-bold tracking-tight">
                 Good morning, Researcher
@@ -271,50 +335,56 @@ export default function Home() {
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 type="button"
-                className="w-11 h-11 rounded-full bg-white text-[#1C1917] flex items-center justify-center text-xl font-bold shadow-lg hover:scale-105 active:scale-95 transition"
+                className="w-11 h-11 rounded-full bg-white text-[#1C1917] flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition"
                 aria-label="New action"
               >
-                {menuOpen ? "✕" : "+"}
+                {menuOpen ? <X className="w-5 h-5 text-[#1C1917]" /> : <Plus className="w-5 h-5 text-[#1C1917]" />}
               </button>
 
               <button
                 onClick={() => setUploadModalOpen(true)}
                 type="button"
-                className="w-11 h-11 rounded-full bg-white text-[#1C1917] flex items-center justify-center text-base shadow-lg hover:scale-105 active:scale-95 transition"
+                className="w-11 h-11 rounded-full bg-white text-[#1C1917] flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition"
                 title="Upload files"
               >
-                🔔
+                <Bell className="w-5 h-5 text-[#1C1917]" />
               </button>
 
               {menuOpen && (
-                <div className="absolute right-0 top-14 w-56 rounded-2xl bg-[#2D2A26]/90 backdrop-blur-xl text-white shadow-floating border border-white/10 p-2 z-50 animate-in fade-in zoom-in-95">
-                  <button
-                    onClick={() => {
-                      setUploadModalOpen(true);
-                      setMenuOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/10 text-sm font-medium transition flex items-center justify-between"
-                  >
-                    <span>Upload New File</span>
-                    <span className="text-xs text-white/50">Browse</span>
-                  </button>
-                  <Link
-                    href="/search"
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
                     onClick={() => setMenuOpen(false)}
-                    className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/10 text-sm font-medium transition flex items-center justify-between"
-                  >
-                    <span>Natural Intent Search</span>
-                    <span className="text-xs text-white/50">↵</span>
-                  </Link>
-                  <div className="h-px bg-white/10 my-1" />
-                  <Link
-                    href="/dashboard"
-                    onClick={() => setMenuOpen(false)}
-                    className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/10 text-sm font-medium transition"
-                  >
-                    System Stats ({stats?.total_vectors || 0} vectors)
-                  </Link>
-                </div>
+                  />
+                  <div className="absolute right-0 top-14 w-56 rounded-2xl bg-[#2D2A26]/95 backdrop-blur-xl text-white shadow-floating border border-white/10 p-2 z-50 animate-in fade-in zoom-in-95">
+                    <button
+                      onClick={() => {
+                        setUploadModalOpen(true);
+                        setMenuOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/10 text-sm font-medium transition flex items-center justify-between"
+                    >
+                      <span>Upload New File</span>
+                      <span className="text-xs text-white/50">Browse</span>
+                    </button>
+                    <Link
+                      href="/search"
+                      onClick={() => setMenuOpen(false)}
+                      className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/10 text-sm font-medium transition flex items-center justify-between"
+                    >
+                      <span>Natural Intent Search</span>
+                      <span className="text-xs text-white/50">↵</span>
+                    </Link>
+                    <div className="h-px bg-white/10 my-1" />
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setMenuOpen(false)}
+                      className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/10 text-sm font-medium transition"
+                    >
+                      System Stats ({stats?.total_vectors || 0} vectors)
+                    </Link>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -340,13 +410,7 @@ export default function Home() {
                 >
                   <div className="flex items-center justify-between mb-6">
                     <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
-                      <svg
-                        className="w-5 h-5"
-                        fill={topic.iconColor}
-                        viewBox="0 0 24 24"
-                      >
-                        <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" />
-                      </svg>
+                      <Folder className={`w-5 h-5 ${topic.iconColor}`} />
                     </div>
                   </div>
 
@@ -374,9 +438,7 @@ export default function Home() {
             {/* Search Bar */}
             <form onSubmit={(e) => handleSearch(e)} className="w-full sm:max-w-xl">
               <div className="flex items-center gap-2 p-1.5 pl-3.5 pr-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus-within:border-[var(--accent)] shadow-sm transition">
-                <span className="shrink-0 text-sm text-[var(--text-secondary)]" aria-hidden>
-                  🔍
-                </span>
+                <Search className="w-4 h-4 text-[var(--text-secondary)] shrink-0" aria-hidden="true" />
                 <input
                   type="text"
                   value={searchQuery}
@@ -394,7 +456,7 @@ export default function Home() {
                     className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition"
                     aria-label="Clear search"
                   >
-                    ✕
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 )}
                 <button
@@ -408,10 +470,10 @@ export default function Home() {
             </form>
           </div>
 
-          {/* Filter Pills */}
+          {/* Dynamic Filter Pills */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              {["All files", "PDF", "Photos", "Vectors"].map((pill) => (
+            <div className="flex items-center gap-2 flex-wrap">
+              {availableFilterPills.map((pill) => (
                 <button
                   key={pill}
                   type="button"
@@ -468,8 +530,8 @@ export default function Home() {
                       className="p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-card hover:shadow-card-hover transition-all flex flex-col justify-between space-y-3"
                     >
                       <div className="flex items-start gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/30 text-amber-700 dark:text-amber-300 flex items-center justify-center text-xl shrink-0 p-3 shadow-inner">
-                          📄
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/30 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 p-3 shadow-inner">
+                          <FileText className="w-6 h-6 text-amber-700 dark:text-amber-300" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <h4 className="font-semibold text-[15px] text-[var(--text-primary)] truncate">
@@ -487,18 +549,38 @@ export default function Home() {
                         "{res.sentence_text}"
                       </div>
 
-                      <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs">
+                      <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs gap-2">
                         <span className="text-[var(--text-secondary)] truncate">
                           {res.explanation}
                         </span>
-                        <a
-                          href={`${API_URL}/download/${res.file_id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-2.5 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] font-medium hover:text-[var(--accent)]"
-                        >
-                          Download
-                        </a>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const match = files.find((f) => f.file_id === res.file_id);
+                              setPreviewFile({
+                                file_id: res.file_id,
+                                name: res.filename,
+                                size_bytes: match?.size_bytes || 0,
+                                extension: res.filename.split(".").pop() || "",
+                                topic_tags: match?.topic_tags,
+                                modified: match?.modified
+                              });
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] font-medium hover:text-[var(--accent)] hover:border-[var(--accent)]/40 inline-flex items-center gap-1 transition"
+                            title={`Preview ${res.filename}`}
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Preview
+                          </button>
+                          <a
+                            href={`${API_URL}/download/${res.file_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] font-medium hover:text-[var(--accent)]"
+                          >
+                            Download
+                          </a>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -539,8 +621,11 @@ export default function Home() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {displayFiles.map((file) => {
                     const ext = file.extension?.toLowerCase() || "";
-                    const isPdf = ext === "pdf";
-                    const isDocx = ext === "docx";
+                    const cat = getFileCategory(file.name, file.extension);
+                    const isPdf = cat === "pdf";
+                    const isDocx = cat === "docx";
+                    const isCode = cat === "code";
+                    const isPhoto = cat === "photo";
 
                     return (
                       <div
@@ -555,21 +640,23 @@ export default function Home() {
                                 ? "bg-gradient-to-br from-[#FFEDE5] to-[#FCD9C8] dark:from-[#3D251C] dark:to-[#2A1810] text-[#C96A45]"
                                 : isDocx
                                 ? "bg-gradient-to-br from-[#EBF3FF] to-[#D4E6FC] dark:from-[#1E293B] dark:to-[#0F172A] text-[#3B82F6]"
+                                : isCode
+                                ? "bg-gradient-to-br from-[#E6F4EA] to-[#CEEAD6] dark:from-[#0D3820] dark:to-[#052112] text-[#137333] dark:text-[#81C995]"
+                                : isPhoto
+                                ? "bg-gradient-to-br from-[#FCE8E6] to-[#FAD2CF] dark:from-[#3C1A1A] dark:to-[#220B0B] text-[#D93025] dark:text-[#F28B82]"
                                 : "bg-gradient-to-br from-[#F5EEFB] to-[#E9D5F7] dark:from-[#2E1065] dark:to-[#1E0942] text-[#A855F7]"
                             }`}
                           >
                             {isPdf ? (
-                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5h-1v2H7V9h2.5c.83 0 1.5.67 1.5 1.5v1c0 .83-.67 1.5-1.5 1.5zm6 3h-2.5V9H15c.83 0 1.5.67 1.5 1.5v3c0 .83-.67 1.5-1.5 1.5zm-6-4.5h-1v1h1v-1zm4.5 1.5h-1v2h1v-2z" />
-                              </svg>
+                              <FileText className="w-5 h-5" />
                             ) : isDocx ? (
-                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" />
-                              </svg>
+                              <FileText className="w-5 h-5" />
+                            ) : isCode ? (
+                              <Code2 className="w-5 h-5" />
+                            ) : isPhoto ? (
+                              <ImageIcon className="w-5 h-5" />
                             ) : (
-                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                              </svg>
+                              <FileText className="w-5 h-5" />
                             )}
                           </div>
 
@@ -590,26 +677,39 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Actions: Download + Delete */}
+                        {/* Actions: Preview + Download + Delete */}
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => setPreviewFile(file)}
+                            type="button"
+                            className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 flex items-center justify-center transition"
+                            title={`Preview ${file.name}`}
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
                           <a
                             href={`${API_URL}/download/${file.file_id}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 flex items-center justify-center text-xs transition"
+                            className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 flex items-center justify-center transition"
                             title={`Download ${file.name}`}
                           >
-                            📥
+                            <Download className="w-3.5 h-3.5" />
                           </a>
 
                           <button
                             onClick={() => handleDeleteFile(file.file_id, file.name)}
                             disabled={deletingId === file.file_id}
                             type="button"
-                            className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-red-500 hover:border-red-500/50 flex items-center justify-center text-xs transition disabled:opacity-40"
+                            className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-red-500 hover:border-red-500/50 flex items-center justify-center transition disabled:opacity-40"
                             title={`Delete ${file.name}`}
                           >
-                            {deletingId === file.file_id ? "..." : "🗑️"}
+                            {deletingId === file.file_id ? (
+                              <span className="w-3 h-3 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
                           </button>
                         </div>
                       </div>
@@ -619,8 +719,8 @@ export default function Home() {
               ) : (
                 /* Empty State */
                 <div className="text-center py-16 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-3xl p-8 space-y-4">
-                  <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 text-[var(--accent)] text-2xl flex items-center justify-center mx-auto">
-                    📂
+                  <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center mx-auto">
+                    <Folder className="w-7 h-7 text-[var(--accent)]" />
                   </div>
                   <div>
                     <h3 className="font-fraunces text-xl font-bold text-[var(--text-primary)]">
@@ -667,9 +767,9 @@ export default function Home() {
                 </h3>
                 <button
                   onClick={() => setUploadModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-[var(--bg-base)] flex items-center justify-center text-sm"
+                  className="w-8 h-8 rounded-full bg-[var(--bg-base)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
@@ -681,16 +781,16 @@ export default function Home() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.docx,.txt"
+                  accept=".pdf,.docx,.doc,.txt,.md,.py,.js,.ts,.tsx,.jsx,.html,.css,.json,.java,.cpp,.c,.h,.go,.rs,.sql,.sh,.yaml,.yml,.png,.jpg,.jpeg,.webp,.svg,.gif"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
-                <div className="text-3xl mb-2">📤</div>
+                <UploadCloud className="w-10 h-10 text-[var(--accent)] mx-auto mb-2" />
                 <p className="font-semibold text-sm text-[var(--text-primary)]">
-                  Click to browse or drop PDF, DOCX, TXT files
+                  Click to browse or drop PDF, DOCX, TXT, Code, or Photos
                 </p>
                 <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  Original filenames are preserved and indexed
+                  All documents, code files, and photos are automatically categorized and stored locally
                 </p>
               </div>
 
@@ -703,6 +803,12 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Interactive File Preview Modal */}
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+      />
     </div>
   );
 }
