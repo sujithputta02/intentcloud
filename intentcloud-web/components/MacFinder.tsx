@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
   Share2,
@@ -8,19 +8,34 @@ import {
   Tag,
   Search,
   Folder,
+  FolderPlus,
   Cloud,
-  Layers,
   Monitor,
   FileText,
   Download,
   Play,
   Pause,
-  Code,
-  Sparkles,
+  UploadCloud,
+  Trash2,
   ExternalLink,
   X,
+  Plus,
+  ArrowUpRight,
+  Sparkles,
 } from "lucide-react";
+import { API_URL } from "@/lib/api";
 import { PreviewableFile } from "./FilePreviewModal";
+
+export interface FolderItem {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  color?: string;
+  created_at?: number;
+  path: string;
+  file_count: number;
+  subfolder_count: number;
+}
 
 export interface FileItem {
   file_id: string;
@@ -55,42 +70,241 @@ export default function MacFinder({
   onPreview,
   onShowToast,
 }: MacFinderProps) {
+  // Navigation & Folder Hierarchy
+  const [folders, setFolders] = useState<FolderItem[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderHistory, setFolderHistory] = useState<(string | null)[]>([null]);
   const [activeCategory, setActiveCategory] = useState<SidebarCategory>("documents");
+
+  // Search & Modal States
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(true);
-  const [activeViewTab, setActiveViewTab] = useState<"showcase" | "userfiles">("showcase");
+  const [newFolderModalOpen, setNewFolderModalOpen] = useState<boolean>(false);
+  const [newFolderName, setNewFolderName] = useState<string>("");
+  const [newFolderColor, setNewFolderColor] = useState<string>("blue");
+  const [isCreatingFolder, setIsCreatingFolder] = useState<boolean>(false);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [activeAudioPlayingId, setActiveAudioPlayingId] = useState<string | null>(null);
 
-  // Filter user files if viewing user files
-  const filteredUserFiles = files.filter((f) =>
-    f.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleShowcaseClick = (title: string, type: string) => {
-    onShowToast(`Opened ${title} in Quick Look`);
-    onPreview({
-      file_id: `showcase-${title.toLowerCase().replace(/\s+/g, "-")}`,
-      name: `${title}.${type}`,
-      size_bytes: 2048500,
-      modified: Date.now() / 1000,
-      extension: type,
-      topic_tags: ["Showcase", type.toUpperCase()],
-    });
+  // Fetch Folders from API
+  const fetchFolders = async () => {
+    try {
+      const res = await fetch(`${API_URL}/folders`);
+      if (res.ok) {
+        const data = await res.json();
+        const folderArray = Array.isArray(data) ? data : data?.folders || [];
+        setFolders(folderArray);
+      }
+    } catch (err) {
+      console.error("Failed to fetch folders:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchFolders();
+  }, []);
+
+  // Compute Current Folder & Breadcrumb
+  const currentFolder = folders.find((f) => f.id === currentFolderId);
+
+  const currentPathBreadcrumb = React.useMemo(() => {
+    if (activeCategory === "all") return "Users > All My Files";
+    if (activeCategory === "desktop") return "Users > Desktop";
+    if (activeCategory === "downloads") return "Users > Downloads";
+    if (activeCategory === "icloud") return "iCloud Drive";
+    if (activeCategory === "applications") return "Applications";
+
+    if (!currentFolderId) return "Users > Documents";
+    const segments: string[] = ["Users", "Documents"];
+    let curr: FolderItem | undefined = currentFolder;
+    const lineage: string[] = [];
+    while (curr) {
+      lineage.unshift(curr.name);
+      curr = folders.find((f) => f.id === curr?.parent_id);
+    }
+    return [...segments, ...lineage].join(" > ");
+  }, [activeCategory, currentFolderId, currentFolder, folders]);
+
+  // Navigate into a folder
+  const handleOpenFolder = (folderId: string) => {
+    setFolderHistory((prev) => [...prev, folderId]);
+    setCurrentFolderId(folderId);
+    setActiveCategory("documents");
+  };
+
+  // Back Navigation
+  const handleNavigateBack = () => {
+    if (folderHistory.length > 1) {
+      const newHistory = [...folderHistory];
+      newHistory.pop();
+      const prevId = newHistory[newHistory.length - 1];
+      setFolderHistory(newHistory);
+      setCurrentFolderId(prevId);
+    } else if (currentFolderId !== null) {
+      setCurrentFolderId(null);
+      setFolderHistory([null]);
+    } else {
+      onShowToast("Already at root directory");
+    }
+  };
+
+  // Filter Subfolders and Files for current location
+  const displayedSubfolders = folders.filter((f) => {
+    if (activeCategory === "all") return false;
+    if (searchQuery.trim()) {
+      return f.name.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    return f.parent_id === currentFolderId;
+  });
+
+  const displayedFiles = files.filter((f) => {
+    if (searchQuery.trim()) {
+      return f.name.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    if (activeCategory === "all") return true;
+    if (activeCategory === "downloads") {
+      return f.extension === "zip" || f.extension === "dmg" || f.extension === "tar";
+    }
+    // Match by folder_id
+    if (currentFolderId) {
+      return f.folder_id === currentFolderId;
+    }
+    // Root level files: either no folder_id or in root documents
+    return !f.folder_id;
+  });
+
+  // Create New Folder
+  const handleCreateFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+
+    setIsCreatingFolder(true);
+    try {
+      const res = await fetch(`${API_URL}/folders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newFolderName.trim(),
+          parent_id: currentFolderId,
+          color: newFolderColor,
+        }),
+      });
+
+      if (res.ok) {
+        onShowToast(`Folder "${newFolderName}" created`);
+        setNewFolderName("");
+        setNewFolderModalOpen(false);
+        await fetchFolders();
+        onRefresh();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        onShowToast(err.detail || "Failed to create folder");
+      }
+    } catch (err) {
+      console.error(err);
+      onShowToast("Network error creating folder");
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+
+  // Delete Folder
+  const handleDeleteFolder = async (folderId: string, folderName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Are you sure you want to delete folder "${folderName}"?`)) return;
+
+    try {
+      const res = await fetch(`${API_URL}/folders/${folderId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        onShowToast(`Deleted folder "${folderName}"`);
+        await fetchFolders();
+        onRefresh();
+      } else {
+        onShowToast("Failed to delete folder");
+      }
+    } catch (err) {
+      console.error(err);
+      onShowToast("Error deleting folder");
+    }
+  };
+
+  // Direct File Upload into Current Folder
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const file = fileList[0];
+    const formData = new FormData();
+    formData.append("file", file);
+    if (currentFolderId) {
+      formData.append("folder_id", currentFolderId);
+    }
+
+    setIsUploading(true);
+    onShowToast(`Uploading "${file.name}"...`);
+    try {
+      const res = await fetch(`${API_URL}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        onShowToast(`Uploaded "${file.name}" successfully`);
+        await fetchFolders();
+        onRefresh();
+      } else {
+        onShowToast(`Upload failed for "${file.name}"`);
+      }
+    } catch (err) {
+      console.error(err);
+      onShowToast("Upload network error");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // Color helper for folder badges
+  const getFolderColorGradient = (color?: string) => {
+    switch (color) {
+      case "purple":
+        return "from-[#4c1d95] via-[#581c87] to-[#3b0764]";
+      case "amber":
+        return "from-[#b45309] via-[#d97706] to-[#78350f]";
+      case "emerald":
+        return "from-[#065f46] via-[#047857] to-[#064e3b]";
+      case "rose":
+        return "from-[#9f1239] via-[#be123c] to-[#881337]";
+      default:
+        return "from-[#1e3a8a] via-[#1d4ed8] to-[#172554]";
+    }
   };
 
   return (
     <div className="relative w-full rounded-[36px] p-2 sm:p-6 lg:p-8 bg-gradient-to-tr from-[#2d124d] via-[#a83279] to-[#f97316] shadow-2xl overflow-hidden font-sans">
+      {/* Hidden File Input for Native macOS Finder Uploads */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
       {/* Background Ambient Glows */}
       <div className="absolute -top-24 -left-24 w-96 h-96 bg-purple-500/40 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-amber-500/30 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main macOS Finder Window Container */}
-      <div className="relative w-full max-w-5xl mx-auto rounded-[28px] sm:rounded-[32px] bg-[#f4f5f8]/95 dark:bg-[#18191e]/95 backdrop-blur-3xl shadow-[0_25px_70px_rgba(0,0,0,0.35)] border border-white/70 dark:border-white/10 overflow-hidden flex flex-col min-h-[580px]">
+      <div className="relative w-full max-w-5xl mx-auto rounded-[28px] sm:rounded-[32px] bg-[#f4f5f8]/95 dark:bg-[#18191e]/95 backdrop-blur-3xl shadow-[0_25px_70px_rgba(0,0,0,0.35)] border border-white/70 dark:border-white/10 overflow-hidden flex flex-col min-h-[600px]">
         
         {/* TOP TOOLBAR */}
         <div className="h-14 px-5 border-b border-black/[0.05] dark:border-white/[0.06] flex items-center justify-between select-none">
           {/* Traffic Lights & Back Arrow */}
-          <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-5">
             <div className="flex items-center space-x-2">
               <button
                 type="button"
@@ -115,67 +329,71 @@ export default function MacFinder({
             {/* Navigation Chevron */}
             <button
               type="button"
-              onClick={() => onShowToast("Navigated back")}
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition p-1"
-              aria-label="Back"
+              onClick={handleNavigateBack}
+              className={`p-1 transition ${
+                currentFolderId !== null || folderHistory.length > 1
+                  ? "text-gray-700 dark:text-gray-200 hover:scale-110"
+                  : "text-gray-400 dark:text-gray-600 cursor-default"
+              }`}
+              title="Back"
             >
               <ChevronLeft className="w-5 h-5 stroke-[1.75]" />
             </button>
           </div>
 
-          {/* Center Title or Search Field */}
-          {searchOpen ? (
-            <div className="flex-1 max-w-xs mx-4 relative">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search Documents..."
-                autoFocus
-                className="w-full bg-white/70 dark:bg-black/30 border border-gray-300 dark:border-gray-700 rounded-full px-3 py-1 text-xs text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-              />
-              {searchQuery && (
+          {/* Center Search / Action Toolbar */}
+          <div className="flex-1 max-w-sm mx-4 flex items-center justify-center">
+            {searchOpen ? (
+              <div className="w-full relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search files & folders..."
+                  autoFocus
+                  className="w-full bg-white/80 dark:bg-black/40 border border-gray-300 dark:border-gray-700 rounded-full px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                {/* New Folder Button */}
                 <button
                   type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2.5 top-1.5 text-gray-400 hover:text-gray-600"
+                  onClick={() => setNewFolderModalOpen(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.12] text-xs font-semibold text-gray-700 dark:text-gray-200 transition shadow-xs"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <FolderPlus className="w-3.5 h-3.5 text-blue-500" />
+                  <span>New Folder</span>
                 </button>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center space-x-2 bg-black/[0.04] dark:bg-white/[0.06] p-0.5 rounded-lg text-[11px] font-medium text-gray-600 dark:text-gray-300">
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("showcase")}
-                className={`px-2.5 py-1 rounded-md transition ${
-                  activeViewTab === "showcase"
-                    ? "bg-white dark:bg-black/40 text-gray-900 dark:text-white shadow-xs font-semibold"
-                    : "hover:text-gray-900"
-                }`}
-              >
-                Exact Design Preview
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("userfiles")}
-                className={`px-2.5 py-1 rounded-md transition ${
-                  activeViewTab === "userfiles"
-                    ? "bg-white dark:bg-black/40 text-gray-900 dark:text-white shadow-xs font-semibold"
-                    : "hover:text-gray-900"
-                }`}
-              >
-                My Uploaded Files ({files.length})
-              </button>
-            </div>
-          )}
+
+                {/* Upload File Button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.12] text-xs font-semibold text-gray-700 dark:text-gray-200 transition shadow-xs disabled:opacity-50"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{isUploading ? "Uploading..." : "Upload File"}</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Action Toolbar Icons (Share, Quick Look, Tag, Search) */}
           <div className="flex items-center space-x-3 text-gray-400 dark:text-gray-400">
             <button
               type="button"
-              onClick={() => onShowToast("Shared document link")}
+              onClick={() => onShowToast("Shared directory link")}
               className="p-1 hover:text-gray-700 dark:hover:text-gray-200 transition"
               title="Share"
             >
@@ -184,10 +402,10 @@ export default function MacFinder({
             <button
               type="button"
               onClick={() => {
-                if (files.length > 0) {
-                  onPreview(files[0] as unknown as PreviewableFile);
+                if (displayedFiles.length > 0) {
+                  onPreview(displayedFiles[0] as unknown as PreviewableFile);
                 } else {
-                  handleShowcaseClick("aerial-01", "mp4");
+                  onShowToast("Select a file to Quick Look");
                 }
               }}
               className="p-1 hover:text-gray-700 dark:hover:text-gray-200 transition"
@@ -197,7 +415,7 @@ export default function MacFinder({
             </button>
             <button
               type="button"
-              onClick={() => onShowToast("Filter by tags")}
+              onClick={() => onShowToast("Filtered by topic tags")}
               className="p-1 hover:text-gray-700 dark:hover:text-gray-200 transition"
               title="Tags"
             >
@@ -223,16 +441,16 @@ export default function MacFinder({
           
           {/* LEFT SIDEBAR */}
           <aside className="w-full md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-black/[0.04] dark:border-white/[0.06] p-4 flex flex-col justify-between select-none bg-black/[0.015] dark:bg-white/[0.015]">
-            <nav className="space-y-1 text-xs">
+            <nav className="space-y-1 text-xs overflow-y-auto max-h-[460px]">
               <button
                 type="button"
                 onClick={() => {
                   setActiveCategory("all");
-                  setActiveViewTab("userfiles");
+                  setCurrentFolderId(null);
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition ${
                   activeCategory === "all"
-                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-medium"
+                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
                 }`}
               >
@@ -244,11 +462,11 @@ export default function MacFinder({
                 type="button"
                 onClick={() => {
                   setActiveCategory("icloud");
-                  onShowToast("iCloud Drive Synced");
+                  setCurrentFolderId(null);
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition ${
                   activeCategory === "icloud"
-                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-medium"
+                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
                 }`}
               >
@@ -260,11 +478,11 @@ export default function MacFinder({
                 type="button"
                 onClick={() => {
                   setActiveCategory("applications");
-                  onShowToast("Applications Directory");
+                  setCurrentFolderId(null);
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition ${
                   activeCategory === "applications"
-                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-medium"
+                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
                 }`}
               >
@@ -278,11 +496,11 @@ export default function MacFinder({
                 type="button"
                 onClick={() => {
                   setActiveCategory("desktop");
-                  onShowToast("Desktop Workspace");
+                  setCurrentFolderId(null);
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition ${
                   activeCategory === "desktop"
-                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-medium"
+                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
                 }`}
               >
@@ -290,15 +508,15 @@ export default function MacFinder({
                 <span>Desktop</span>
               </button>
 
-              {/* DOCUMENTS (EXACT ACTIVE STATE FROM SCREENSHOT) */}
+              {/* DOCUMENTS (EXACT ACTIVE STATE PILL FROM SCREENSHOT) */}
               <button
                 type="button"
                 onClick={() => {
                   setActiveCategory("documents");
-                  setActiveViewTab("showcase");
+                  setCurrentFolderId(null);
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition ${
-                  activeCategory === "documents"
+                  activeCategory === "documents" && currentFolderId === null
                     ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
                 }`}
@@ -311,17 +529,50 @@ export default function MacFinder({
                 type="button"
                 onClick={() => {
                   setActiveCategory("downloads");
-                  onShowToast("Downloads Directory");
+                  setCurrentFolderId(null);
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition ${
                   activeCategory === "downloads"
-                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-medium"
+                    ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
                     : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
                 }`}
               >
                 <Download className="w-4 h-4 text-gray-500" />
                 <span>Downloads</span>
               </button>
+
+              {/* REAL USER FOLDERS LIST */}
+              {folders.length > 0 && (
+                <div className="pt-3">
+                  <div className="px-3 py-1 text-[10px] font-bold tracking-wider uppercase text-gray-400 dark:text-gray-500">
+                    My Folders
+                  </div>
+                  <div className="space-y-0.5 mt-1">
+                    {folders
+                      .filter((f) => !f.parent_id)
+                      .map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          onClick={() => handleOpenFolder(folder.id)}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl transition text-xs ${
+                            currentFolderId === folder.id
+                              ? "bg-black/[0.08] dark:bg-white/[0.12] text-gray-900 dark:text-white font-semibold shadow-xs"
+                              : "text-gray-600 dark:text-gray-400 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2.5 truncate">
+                            <Folder className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span className="truncate">{folder.name}</span>
+                          </div>
+                          <span className="text-[10px] text-gray-400">
+                            {folder.file_count || 0}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
             </nav>
 
             <div className="pt-4 border-t border-black/[0.04] dark:border-white/[0.06] text-[11px] text-gray-400 dark:text-gray-500 hidden md:block">
@@ -330,248 +581,331 @@ export default function MacFinder({
           </aside>
 
           {/* MAIN CONTENT AREA */}
-          <main className="flex-1 p-6 sm:p-8 flex flex-col justify-between overflow-y-auto max-h-[620px]">
+          <main className="flex-1 p-6 sm:p-8 flex flex-col justify-between overflow-y-auto max-h-[640px]">
             <div>
               {/* LARGE BOLD HEADER */}
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-[#1d1d1f] dark:text-white tracking-tight mb-7 capitalize">
-                {activeCategory}
-              </h1>
-
-              {/* VIEW MODE 1: EXACT SCREENSHOT REPLICA SHOWCASE */}
-              {activeViewTab === "showcase" ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
-                  
-                  {/* TILE 1: AERIAL-01 (OCEAN VIDEO CARD) */}
-                  <div
-                    onClick={() => handleShowcaseClick("aerial-01", "mp4")}
-                    className="group relative h-48 rounded-2xl overflow-hidden shadow-[0_16px_36px_rgba(0,119,182,0.3)] cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_20px_44px_rgba(0,119,182,0.4)] bg-gradient-to-br from-[#0077b6] via-[#0096c7] to-[#48cae4]"
+              <div className="flex items-center justify-between mb-7">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-[#1d1d1f] dark:text-white tracking-tight capitalize truncate">
+                  {currentFolder ? currentFolder.name : activeCategory}
+                </h1>
+                
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewFolderModalOpen(true)}
+                    className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-semibold transition"
                   >
-                    {/* Ocean Wave Surface Overlay */}
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.35),transparent_60%)]" />
-                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(2,62,138,0.5),transparent_70%)]" />
-
-                    {/* Top-left Play Icon */}
-                    <div className="absolute top-3.5 left-3.5 w-7 h-7 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center shadow-xs">
-                      <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
-                    </div>
-
-                    {/* Bottom-left Title */}
-                    <div className="absolute bottom-3.5 left-3.5">
-                      <span className="text-white font-bold text-base tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
-                        aerial-01
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* TILE 2: CODE INDEX & CANYON COLUMN */}
-                  <div className="flex flex-col space-y-5">
-                    {/* Index Code Snippet Card */}
-                    <div
-                      onClick={() => handleShowcaseClick("index", "html")}
-                      className="group cursor-pointer transition-all duration-300 hover:scale-[1.03]"
-                    >
-                      <div className="h-20 rounded-2xl bg-[#1e1e24] p-3 shadow-[0_12px_28px_rgba(0,0,0,0.25)] flex flex-col justify-center space-y-1">
-                        <div className="flex items-center space-x-1.5 text-xs">
-                          <span className="text-cyan-400 font-mono font-semibold">&lt;&gt;</span>
-                          <span className="text-amber-400 font-mono font-medium">&lt;html&gt;</span>
-                        </div>
-                        <div className="text-[11px] font-mono text-purple-400 pl-4 truncate">
-                          &lt;meta charset=&quot;utf-8&quot;&gt;
-                        </div>
-                      </div>
-                      <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5">
-                        index
-                      </p>
-                    </div>
-
-                    {/* Canyon Photo Card */}
-                    <div
-                      onClick={() => handleShowcaseClick("canyon", "jpg")}
-                      className="group cursor-pointer transition-all duration-300 hover:scale-[1.03]"
-                    >
-                      <div className="h-28 rounded-2xl overflow-hidden shadow-[0_12px_28px_rgba(202,103,2,0.25)] bg-gradient-to-br from-[#c2410c] via-[#ea580c] to-[#7c2d12] relative">
-                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(251,191,36,0.5),transparent_70%)]" />
-                        <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_40%,rgba(0,0,0,0.3)_100%)]" />
-                      </div>
-                      <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5">
-                        canyon
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* TILE 3: SOUNDTRACK & JELLYFISH COLUMN */}
-                  <div className="flex flex-col space-y-5">
-                    {/* Final Soundtrack Waveform Card */}
-                    <div
-                      onClick={() => {
-                        setIsPlayingAudio(!isPlayingAudio);
-                        onShowToast(isPlayingAudio ? "Soundtrack paused" : "Soundtrack playing");
-                      }}
-                      className="group cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                    >
-                      <div className="h-20 rounded-2xl bg-gradient-to-r from-[#d9cbe8] via-[#e2d4f0] to-[#ece1f7] dark:from-[#352c42] dark:to-[#4a3b5c] p-3.5 shadow-[0_12px_28px_rgba(147,112,219,0.2)] flex items-center space-x-3">
-                        {/* Pause / Play Icon */}
-                        <div className="w-8 h-8 rounded-xl bg-white/60 dark:bg-white/20 backdrop-blur-md flex items-center justify-center text-purple-900 dark:text-purple-200 shrink-0 shadow-xs">
-                          {isPlayingAudio ? (
-                            <Pause className="w-4 h-4 fill-purple-900 dark:fill-purple-200" />
-                          ) : (
-                            <Play className="w-4 h-4 fill-purple-900 dark:fill-purple-200 ml-0.5" />
-                          )}
-                        </div>
-
-                        {/* Waveform Bars */}
-                        <div className="flex-1 flex items-center justify-between h-8 space-x-0.5">
-                          {[
-                            4, 8, 14, 20, 26, 18, 12, 22, 28, 16, 24, 30, 22, 14, 19, 25, 20,
-                            12, 15, 22, 26, 18, 10, 16, 24, 18, 12, 8, 5,
-                          ].map((height, i) => (
-                            <div
-                              key={i}
-                              className={`w-1 rounded-full transition-all duration-300 ${
-                                i < 18
-                                  ? "bg-purple-700/80 dark:bg-purple-400"
-                                  : "bg-white/80 dark:bg-white/40"
-                              }`}
-                              style={{ height: `${height}px` }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5">
-                        final soundtrack
-                      </p>
-                    </div>
-
-                    {/* Jellyfish Photoshop Card */}
-                    <div
-                      onClick={() => handleShowcaseClick("jellyfish", "psd")}
-                      className="group cursor-pointer transition-all duration-300 hover:scale-[1.03]"
-                    >
-                      <div className="h-28 rounded-2xl overflow-hidden shadow-[0_12px_28px_rgba(15,23,42,0.3)] bg-gradient-to-b from-[#020617] via-[#0f172a] to-[#1e1b4b] relative p-3 flex flex-col justify-between">
-                        {/* Photoshop Badge */}
-                        <div className="self-start px-1.5 py-0.5 rounded-md bg-[#001e36] border border-[#31a8ff]/40 text-[#31a8ff] font-bold text-[10px] tracking-tight shadow-xs">
-                          Ps
-                        </div>
-                        {/* Bioluminescent Jellyfish Light Effect */}
-                        <div className="absolute right-4 top-4 w-14 h-14 rounded-full bg-cyan-400/20 blur-lg" />
-                        <div className="absolute right-6 bottom-4 w-8 h-8 rounded-full bg-blue-500/30 blur-md" />
-                      </div>
-                      <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5">
-                        jellyfish
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* TILE 4: PROJECT FILES (STACKED ALBUM CARD) */}
-                  <div
-                    onClick={() => handleShowcaseClick("project-files", "zip")}
-                    className="group relative h-48 rounded-2xl bg-gradient-to-b from-[#f1f3f6] to-[#d8dde6] dark:from-[#2a2c35] dark:to-[#1c1e24] p-3 shadow-[0_16px_36px_rgba(0,0,0,0.18)] cursor-pointer transition-all duration-300 hover:scale-[1.03] flex flex-col justify-between"
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>New Folder</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold transition"
                   >
-                    {/* Stacked Thumbnails */}
-                    <div className="grid grid-cols-2 gap-2 h-28">
-                      <div className="rounded-xl overflow-hidden bg-gradient-to-br from-indigo-900 to-purple-800 relative shadow-inner">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,rgba(244,114,182,0.4),transparent)]" />
-                      </div>
-                      <div className="rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-sky-950 relative shadow-inner">
-                        <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(239,68,68,0.4),transparent)]" />
-                      </div>
-                    </div>
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>Upload</span>
+                  </button>
+                </div>
+              </div>
 
-                    {/* Bottom Label on the Card */}
-                    <div className="px-1">
-                      <span className="text-gray-900 dark:text-white font-bold text-sm tracking-tight drop-shadow-xs">
-                        project files
-                      </span>
-                    </div>
+              {/* CARDS GRID: REAL SUBFOLDERS & REAL FILES STYLED EXACTLY LIKE SCREENSHOT */}
+              {displayedSubfolders.length === 0 && displayedFiles.length === 0 ? (
+                /* EMPTY STATE */
+                <div className="py-20 text-center flex flex-col items-center justify-center">
+                  <div className="w-16 h-16 rounded-3xl bg-black/[0.03] dark:bg-white/[0.05] border border-black/[0.06] dark:border-white/[0.08] flex items-center justify-center mb-4">
+                    <Folder className="w-8 h-8 text-gray-400 opacity-60" />
                   </div>
-
-                  {/* TILE 5: PROJECT (SKETCH / MOBILE DESIGN CARD) */}
-                  <div
-                    onClick={() => handleShowcaseClick("project", "sketch")}
-                    className="group cursor-pointer transition-all duration-300 hover:scale-[1.03]"
-                  >
-                    <div className="h-40 rounded-2xl overflow-hidden shadow-[0_14px_32px_rgba(19,78,74,0.25)] bg-gradient-to-br from-[#134e4a] via-[#115e59] to-[#042f2e] p-3 relative flex items-center justify-center">
-                      {/* Diamond / Sketch Badge in Top Left */}
-                      <div className="absolute top-3 left-3 text-cyan-300 text-xs">
-                        💎
-                      </div>
-
-                      {/* Mini Smartphone Wireframe */}
-                      <div className="w-20 h-28 rounded-xl bg-black/40 backdrop-blur-md border border-white/20 p-1.5 flex flex-col justify-between shadow-lg">
-                        <div className="w-6 h-1 bg-white/30 rounded-full mx-auto" />
-                        <div className="flex justify-center -space-x-1">
-                          <div className="w-3.5 h-3.5 rounded-full bg-amber-400" />
-                          <div className="w-3.5 h-3.5 rounded-full bg-rose-400" />
-                          <div className="w-3.5 h-3.5 rounded-full bg-sky-400" />
-                        </div>
-                        <div className="w-full h-7 rounded-lg bg-teal-500/40" />
-                      </div>
-                    </div>
-                    <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5">
-                      project
-                    </p>
+                  <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200">
+                    This folder is empty
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs">
+                    Create a subfolder or upload documents to start organizing your cognitive memory.
+                  </p>
+                  <div className="flex items-center space-x-3 mt-5">
+                    <button
+                      type="button"
+                      onClick={() => setNewFolderModalOpen(true)}
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition"
+                    >
+                      + Create Folder
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-4 py-2 rounded-xl bg-black/[0.06] dark:bg-white/[0.08] hover:bg-black/[0.1] text-gray-800 dark:text-gray-200 text-xs font-semibold transition"
+                    >
+                      Upload File
+                    </button>
                   </div>
                 </div>
               ) : (
-                /* VIEW MODE 2: USER'S REAL UPLOADED CLOUD FILES */
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {filteredUserFiles.length === 0 ? (
-                    <div className="col-span-full py-16 text-center text-gray-400 dark:text-gray-500">
-                      <Folder className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                      <p className="text-sm">No uploaded documents found matching query.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+                  
+                  {/* 1. RENDER SUBFOLDERS (EXACT "PROJECT FILES" STACKED ALBUM CARD STYLE) */}
+                  {displayedSubfolders.map((folder) => (
+                    <div
+                      key={folder.id}
+                      onClick={() => handleOpenFolder(folder.id)}
+                      className="group relative h-44 rounded-2xl bg-gradient-to-b from-[#f1f3f6] to-[#d8dde6] dark:from-[#2a2c35] dark:to-[#1c1e24] p-3 shadow-[0_14px_32px_rgba(0,0,0,0.18)] cursor-pointer transition-all duration-300 hover:scale-[1.03] flex flex-col justify-between"
+                    >
+                      {/* Stacked Thumbnails / Folder Previews */}
+                      <div className="grid grid-cols-2 gap-2 h-26">
+                        <div className={`rounded-xl overflow-hidden bg-gradient-to-br ${getFolderColorGradient(folder.color)} relative shadow-inner p-2.5 flex flex-col justify-between`}>
+                          <Folder className="w-4 h-4 text-white/80" />
+                          <span className="text-[10px] text-white/80 font-mono">
+                            {folder.file_count || 0} files
+                          </span>
+                        </div>
+                        <div className="rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-sky-950 relative shadow-inner p-2.5 flex flex-col justify-between">
+                          <div className="w-4 h-1 bg-white/40 rounded-full" />
+                          <span className="text-[10px] text-white/60 font-mono">
+                            Folder
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bottom Label & Delete Trigger */}
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-gray-900 dark:text-white font-bold text-sm tracking-tight truncate">
+                          {folder.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteFolder(folder.id, folder.name, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition"
+                          title="Delete folder"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    filteredUserFiles.map((file) => (
+                  ))}
+
+                  {/* 2. RENDER REAL FILES (STYLED ACCORDING TO FILE TYPE MATCHING SCREENSHOT) */}
+                  {displayedFiles.map((file) => {
+                    const ext = (file.extension || "").toLowerCase();
+                    const isCode = ["py", "ts", "js", "html", "css", "json", "sh", "cpp", "java"].includes(ext);
+                    const isAudio = ["mp3", "wav", "m4a", "ogg", "flac"].includes(ext);
+                    const isImage = ["jpg", "jpeg", "png", "svg", "webp", "gif"].includes(ext);
+
+                    // A. CODE FILE -> "index" DARK SYNTAX CARD STYLE
+                    if (isCode) {
+                      return (
+                        <div
+                          key={file.file_id}
+                          onClick={() => onPreview(file as unknown as PreviewableFile)}
+                          className="group cursor-pointer transition-all duration-300 hover:scale-[1.03]"
+                        >
+                          <div className="h-28 rounded-2xl bg-[#1e1e24] p-3.5 shadow-[0_12px_28px_rgba(0,0,0,0.25)] flex flex-col justify-between">
+                            <div className="flex items-center space-x-2 text-xs">
+                              <span className="text-cyan-400 font-mono font-semibold">&lt;&gt;</span>
+                              <span className="text-amber-400 font-mono font-medium">.{ext}</span>
+                            </div>
+                            <div className="text-[11px] font-mono text-purple-400 truncate">
+                              &lt;import {file.name.replace(/\.[^/.]+$/, "")}&gt;
+                            </div>
+                            <div className="text-[10px] text-gray-500 font-mono">
+                              {(file.size_bytes / 1024).toFixed(1)} KB
+                            </div>
+                          </div>
+                          <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5 truncate px-1">
+                            {file.name}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    // B. AUDIO FILE -> "final soundtrack" FROSTED LILAC WAVEFORM CARD STYLE
+                    if (isAudio) {
+                      const isPlaying = activeAudioPlayingId === file.file_id;
+                      return (
+                        <div
+                          key={file.file_id}
+                          onClick={() => {
+                            setActiveAudioPlayingId(isPlaying ? null : file.file_id);
+                            onShowToast(isPlaying ? `Paused ${file.name}` : `Playing ${file.name}`);
+                          }}
+                          className="group cursor-pointer transition-all duration-300 hover:scale-[1.02]"
+                        >
+                          <div className="h-28 rounded-2xl bg-gradient-to-r from-[#d9cbe8] via-[#e2d4f0] to-[#ece1f7] dark:from-[#352c42] dark:to-[#4a3b5c] p-3.5 shadow-[0_12px_28px_rgba(147,112,219,0.2)] flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-xl bg-white/60 dark:bg-white/20 backdrop-blur-md flex items-center justify-center text-purple-900 dark:text-purple-200 shrink-0 shadow-xs">
+                              {isPlaying ? (
+                                <Pause className="w-4 h-4 fill-purple-900 dark:fill-purple-200" />
+                              ) : (
+                                <Play className="w-4 h-4 fill-purple-900 dark:fill-purple-200 ml-0.5" />
+                              )}
+                            </div>
+                            <div className="flex-1 flex items-center justify-between h-8 space-x-0.5">
+                              {[4, 10, 18, 26, 14, 22, 28, 16, 24, 30, 20, 12, 18, 25, 15, 8].map((h, i) => (
+                                <div
+                                  key={i}
+                                  className={`w-1 rounded-full transition-all duration-300 ${
+                                    isPlaying ? "bg-purple-700 dark:bg-purple-300" : "bg-purple-700/50 dark:bg-purple-400/50"
+                                  }`}
+                                  style={{ height: `${h}px` }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5 truncate px-1">
+                            {file.name}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    // C. IMAGE FILE -> "canyon" / "jellyfish" PHOTO TILE STYLE
+                    if (isImage) {
+                      return (
+                        <div
+                          key={file.file_id}
+                          onClick={() => onPreview(file as unknown as PreviewableFile)}
+                          className="group cursor-pointer transition-all duration-300 hover:scale-[1.03]"
+                        >
+                          <div className="h-28 rounded-2xl overflow-hidden shadow-[0_12px_28px_rgba(15,23,42,0.25)] bg-gradient-to-br from-[#c2410c] via-[#ea580c] to-[#7c2d12] relative p-3 flex flex-col justify-between">
+                            <div className="self-start px-1.5 py-0.5 rounded-md bg-black/40 text-white font-bold text-[10px] tracking-tight backdrop-blur-md">
+                              {ext.toUpperCase()}
+                            </div>
+                            <div className="text-[10px] text-white/90 font-medium drop-shadow-sm">
+                              {(file.size_bytes / 1024).toFixed(1)} KB
+                            </div>
+                          </div>
+                          <p className="text-xs text-center text-gray-700 dark:text-gray-300 font-medium mt-1.5 truncate px-1">
+                            {file.name}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    // D. DOCUMENT / PDF / GENERAL -> "aerial-01" / "project" BLUE GRADIENT CARD STYLE
+                    return (
                       <div
                         key={file.file_id}
                         onClick={() => onPreview(file as unknown as PreviewableFile)}
-                        className="group relative rounded-2xl p-4 bg-white/70 dark:bg-black/30 border border-black/[0.06] dark:border-white/[0.08] hover:border-blue-500/50 shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 flex flex-col justify-between h-36"
+                        className="group relative h-44 rounded-2xl overflow-hidden shadow-[0_16px_36px_rgba(0,119,182,0.3)] cursor-pointer transition-all duration-300 hover:scale-[1.03] bg-gradient-to-br from-[#0077b6] via-[#0096c7] to-[#48cae4] p-3.5 flex flex-col justify-between"
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs uppercase">
-                            {file.extension || "doc"}
+                        <div className="flex items-center justify-between">
+                          <div className="w-7 h-7 rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center shadow-xs">
+                            <FileText className="w-3.5 h-3.5 text-white" />
                           </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onPreview(file as unknown as PreviewableFile);
-                            }}
-                            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 p-1"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </button>
+                          <span className="text-[10px] font-bold text-white/90 uppercase px-2 py-0.5 rounded-full bg-black/20 backdrop-blur-sm">
+                            {ext || "doc"}
+                          </span>
                         </div>
+
                         <div>
-                          <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">
+                          <span className="text-white font-bold text-sm tracking-wide drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)] line-clamp-2">
                             {file.name}
-                          </p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                          </span>
+                          <span className="text-[11px] text-white/80 mt-1 block">
                             {(file.size_bytes / 1024).toFixed(1)} KB • {file.file_type_category || "Document"}
-                          </p>
+                          </span>
                         </div>
                       </div>
-                    ))
-                  )}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             {/* BOTTOM STATUS & BREADCRUMB BAR */}
-            <div className="pt-6 mt-8 border-t border-black/[0.04] dark:border-white/[0.06] flex items-center justify-between">
+            <div className="pt-6 mt-8 border-t border-black/[0.04] dark:border-white/[0.06] flex items-center justify-between select-none">
               {/* Subtle Scrollbar Indicator in Center */}
               <div className="flex-1 flex justify-center">
                 <div className="h-1.5 w-32 bg-gray-300/80 dark:bg-gray-600/80 rounded-full" />
               </div>
 
-              {/* Breadcrumb Path on Bottom-Right */}
-              <div className="text-[11px] text-gray-400 dark:text-gray-500 font-normal select-none">
-                Users &gt; Documents
+              {/* Dynamic Breadcrumb Path on Bottom-Right */}
+              <div className="text-[11px] text-gray-400 dark:text-gray-500 font-normal truncate max-w-xs">
+                {currentPathBreadcrumb}
               </div>
             </div>
           </main>
         </div>
       </div>
+
+      {/* MODAL: NEW FOLDER CREATION */}
+      {newFolderModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#202127] border border-gray-200 dark:border-gray-700 shadow-2xl p-5 text-gray-900 dark:text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-2">
+                <FolderPlus className="w-5 h-5 text-blue-500" />
+                <h3 className="font-bold text-sm">New Folder</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewFolderModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateFolder} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                  Folder Name
+                </label>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="e.g. Distributed Systems"
+                  autoFocus
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-gray-50 dark:bg-black/30 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+                  Folder Color Accent
+                </label>
+                <div className="flex items-center space-x-2">
+                  {[
+                    { name: "blue", bg: "bg-blue-500" },
+                    { name: "purple", bg: "bg-purple-500" },
+                    { name: "emerald", bg: "bg-emerald-500" },
+                    { name: "amber", bg: "bg-amber-500" },
+                    { name: "rose", bg: "bg-rose-500" },
+                  ].map((c) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => setNewFolderColor(c.name)}
+                      className={`w-6 h-6 rounded-full ${c.bg} transition ${
+                        newFolderColor === c.name
+                          ? "ring-2 ring-offset-2 ring-blue-500 scale-110"
+                          : "opacity-70 hover:opacity-100"
+                      }`}
+                      aria-label={c.name}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewFolderModalOpen(false)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingFolder || !newFolderName.trim()}
+                  className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50 shadow-sm"
+                >
+                  {isCreatingFolder ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
