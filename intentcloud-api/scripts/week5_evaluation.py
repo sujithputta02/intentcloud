@@ -192,13 +192,18 @@ def evaluate_mode(
             is_confident = data.get("is_confident_match", True)
 
             if not expect_confident:
-                # Negative query test
+                # Negative query test: must abstain AND return no file results
                 neg_count += 1
-                if not is_confident or len(results) == 0 or results[0].get("relevance_score", 0) < 0.40:
+                if not is_confident and len(results) == 0:
                     neg_correct += 1
-                    log_ok(f"[NEG] {qid}: Correctly rejected with low confidence ({data.get('confidence_message', '')[:60]}...)")
+                    log_ok(f"[NEG] {qid}: Correctly rejected — no results returned ({data.get('confidence_message', '')[:60]}...)")
                 else:
-                    log_fail(f"[NEG] {qid}: False positive! Top match {results[0].get('filename')} scored {results[0].get('relevance_score')}")
+                    top = results[0].get("filename") if results else "n/a"
+                    score = results[0].get("relevance_score") if results else "n/a"
+                    log_fail(
+                        f"[NEG] {qid}: False positive! confident={is_confident}, "
+                        f"results={len(results)}, top={top}, score={score}"
+                    )
                 continue
 
             positive_count += 1

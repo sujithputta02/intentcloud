@@ -51,7 +51,7 @@
   - Phase 2 (Vector Indexing & Sparse Hashing): **100% Complete**
   - Phase 3 (Intent Extraction & Expansion): **100% Complete**
   - Phase 4 (Hybrid RRF & Cross-Encoder Reranking): **100% Complete**
-  - Evaluation & Benchmarking: **100% Complete (35 queries)**
+  - Evaluation & Benchmarking: **100% Complete (42 queries: 32 positive + 10 negative)**
   - Academic Paper 1: **Draft finalized in IEEE LaTeX format**
 
 ### Slide 6: Live Demonstration Transition Slide
@@ -62,15 +62,16 @@
   3. Out-of-Domain Query: Calibrated Anti-Hallucination Gate.
   4. Instant Source File Download.
 
-### Slide 7: Empirical Benchmark Results (35-Query Suite)
+### Slide 7: Empirical Benchmark Results (42-Query Suite)
 | Pipeline Configuration | Top-1 Accuracy | Top-3 Accuracy | MRR | Avg Latency | Out-of-Domain Rejection |
 |---|---|---|---|---|---|
-| Mode A: Sparse Keyword Baseline | 87.5% | 96.9% | 0.922 | 1,567 ms | 100% |
-| Mode B: Dense Semantic Baseline | 87.5% | 96.9% | 0.922 | 1,103 ms | 100% |
-| Mode C: RRF Hybrid (No Rerank) | 87.5% | 96.9% | 0.927 | 1,180 ms | 100% |
-| **Mode D: Full Hybrid + RRF + Rerank** | **90.6%** | **100.0%** | **0.953** | **1,457 ms** | **100%** |
+| Mode A: Sparse Keyword Baseline | 38.7% | 48.4% | 0.430 | 1,483 ms | 100% |
+| Mode B: Dense Semantic Baseline | 65.6% | 84.4% | 0.745 | 1,454 ms | 100% |
+| **Mode C: Full Hybrid + RRF + Rerank** | **87.5%** | **100.0%** | **0.932** | **2,401 ms** | **100%** |
 
-- **Key Takeaway:** Hybrid + RRF + Cross-Encoder achieves **+3.1% Top-1 accuracy** over pure dense and sparse baselines and **100% Top-3 accuracy**, exceeding PRD $\ge 85\%$ target.
+Neg. column = 10/10 out-of-domain controls rejected with `is_confident_match=false` **and** zero result cards returned.
+
+- **Key Takeaway:** Hybrid + RRF + Cross-Encoder achieves **+21.9% Top-1** over dense-only and **100% Top-3**, exceeding PRD $\ge 85\%$ target. Week 6 fixes: expanded negative controls (3 → 10) and strict abstention (empty results, not just a warning banner).
 
 ### Slide 8: Hardware Procurement & Edge Roadmap
 - **Physical Evidence:** Display unboxed Raspberry Pi 3B board, official power supply, microSD card, and other procured accessories (heatsink and cooling fan to be ordered in Week 7).
@@ -80,13 +81,13 @@
   - Expose via outbound Cloudflare Zero-Trust Tunnel (remote HTTPS without open router ports).
 
 ### Slide 9: Research Contribution (IEEE Paper 1 Submission)
-- **Title:** *"Hybrid Neural-Lexical Information Retrieval with Reciprocal Rank Fusion and Cross-Encoder Reranking for Intent-Aware Local Document Understanding"*
+- **Title:** *"Intent-Aware Hybrid Document Retrieval with Reciprocal Rank Fusion and Cross-Encoder Reranking"*
 - **Target Venue:** IEEE Conference on Cognitive Computing & Applied AI.
 - **Status:** Complete IEEEtran LaTeX manuscript and plain-text submission package prepared.
 
 ### Slide 10: Conclusion & Next Steps (Week 7 Roadmap)
 - Completed Phase 1–4 local pipeline running with zero cloud API dependencies.
-- Confirmed sub-1.5s latency and 90.6% Top-1 precision on consumer hardware.
+- Confirmed hybrid retrieval at 87.5% Top-1 and 0.932 MRR on the Week 6 benchmark re-run.
 - Next Milestone: Edge migration to Raspberry Pi and Cloudflare Tunnel deployment for Review-3 ($\ge 50\%$ gate).
 
 ---
@@ -139,17 +140,17 @@
 - **Click:** **Search**
 - **What Appears:**
   - An amber warning banner: **"No confident match found in your library."**
-  - Below it: Results flagged with a "Low Confidence" badge.
+  - **No result cards** are shown below the banner (strict abstention).
 - **Speaker (Sujith):**
   > *"This answers a major flaw in standard vector databases and RAG systems: hallucination on irrelevant queries. Standard nearest-neighbor search always forces a top match, even if you search for cooking recipes on a computer science repository.*
-  > *IntentCloud applies a logistic sigmoid confidence threshold ($\tau = 0.40$) on cross-encoder logits. Because this cooking query scored only 0.08, the system gracefully abstains, protecting the user from false-positive hallucinations."*
+  > *IntentCloud applies a logistic sigmoid confidence threshold ($\tau = 0.40$) on cross-encoder logits. Because this cooking query scored only 0.08, the system abstains completely — no file cards are returned — protecting the user from false-positive hallucinations."*
 
 ---
 
 ### Step 4: Empirical Benchmark Evidence (`/dashboard`)
 - **Action:** Navigate to the Dashboard or display Slide 7.
 - **Speaker (Mokshith):**
-  > *"We verified our system using an automated 35-query benchmark. As seen in our empirical table, sparse-only search achieved 87.5% and dense-only achieved 87.5%. Our hybrid RRF + Cross-Encoder pipeline boosted Top-1 accuracy to 90.6% and Top-3 accuracy to a perfect 100.0% with an MRR of 0.953, fully satisfying our PRD requirement of $\ge 85\%$."*
+  > *"We verified our system using an automated 42-query benchmark — 32 positive retrieval queries and 10 out-of-domain negative controls. Our hybrid RRF + Cross-Encoder pipeline reached 87.5% Top-1, 100% Top-3, and 0.932 MRR on positive queries, satisfying the PRD $\ge 85\%$ target. All 10 negative controls were correctly rejected at $\tau = 0.40$ with zero result cards returned — a 100% true-negative rejection rate."*
 
 ---
 
@@ -165,7 +166,7 @@
 ### Question 1: *"Why is IntentCloud anything more than an ordinary wrapper around Qdrant and Sentence-Transformers?"*
 **Answer (Sujith):**
 > *"External libraries provide isolated building blocks, but personal re-finding has unique failure modes that simple vector wrappers fail to solve. Dense vector search misses exact technical keywords and codes; uniform vector distance cannot abstain on negative queries; and simple vector similarity provides no human-interpretable explanations.*
-> *Our research contribution is an intent-conditioned multi-stage retrieval architecture: we combine universal 1-million-dimensional sparse MurmurHash3 vectors with dense vectors using Reciprocal Rank Fusion ($k=60$), followed by cross-encoder reordering with sentence-level citation extraction and calibrated confidence gating. We prove empirically that this hybrid fusion achieves 90.6% Top-1 accuracy and 100% Top-3 accuracy, outperforming pure dense and sparse baselines on identical hardware with zero cloud API dependencies."*
+> *Our research contribution is an intent-conditioned multi-stage retrieval architecture: we combine sparse MurmurHash3 feature hashing with dense vectors using Reciprocal Rank Fusion ($k=60$), followed by cross-encoder reordering with sentence-level citation extraction and calibrated confidence gating ($\tau = 0.40$). On our 42-query benchmark, hybrid mode achieves 87.5% Top-1 and 0.932 MRR, with 10/10 out-of-domain queries correctly rejected via strict abstention."*
 
 ### Question 2: *"Why did you use Reciprocal Rank Fusion instead of just adding the cosine similarity and BM25 score together?"*
 **Answer (Sujith):**

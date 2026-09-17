@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { FolderUp, CheckCircle2, Tag, FileCode, ImageIcon, FileText } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { FolderUp, CheckCircle2, Tag, FileCode, ImageIcon, FileText, Folder } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import { classifyFile, getFileCategory, CODE_EXTENSIONS, IMAGE_EXTENSIONS, DOCUMENT_EXTENSIONS } from "@/lib/topics";
 
@@ -11,6 +11,12 @@ interface UploadResponse {
   filename: string;
   size_bytes: number;
   message: string;
+}
+
+interface FolderOption {
+  id: string;
+  name: string;
+  path: string;
 }
 
 interface IngestingItem {
@@ -27,7 +33,20 @@ interface IngestingItem {
 export default function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [items, setItems] = useState<IngestingItem[]>([]);
+  const [folders, setFolders] = useState<FolderOption[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/folders`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.folders) {
+          setFolders(data.folders);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -102,6 +121,9 @@ export default function UploadPage() {
       try {
         const formData = new FormData();
         formData.append("file", file);
+        if (selectedFolderId) {
+          formData.append("folder_id", selectedFolderId);
+        }
 
         let response: Response;
         try {
@@ -208,6 +230,33 @@ export default function UploadPage() {
           <p className="text-[var(--text-secondary)] text-base">
             Upload your files into IntentCloud. Text and metadata will be extracted, chunked, and embedded into local Qdrant vectors automatically.
           </p>
+        </div>
+
+        {/* Destination Folder Selector */}
+        <div className="flex items-center justify-between p-4 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl shadow-xs">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500">
+              <Folder className="w-5 h-5" />
+            </div>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] block">
+                Destination Folder
+              </label>
+              <p className="text-xs text-[var(--text-secondary)]">Files will be indexed inside this folder location</p>
+            </div>
+          </div>
+          <select
+            value={selectedFolderId}
+            onChange={(e) => setSelectedFolderId(e.target.value)}
+            className="px-3.5 py-2 bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-xl text-xs font-medium text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">IntentCloud HD (Root)</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.path}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Full-width Drop Zone */}

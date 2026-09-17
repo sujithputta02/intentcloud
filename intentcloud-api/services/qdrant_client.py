@@ -18,7 +18,7 @@ This module is intentionally domain-independent.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import logging
 import uuid
@@ -359,7 +359,7 @@ class QdrantIndexManager:
         # Universal metadata.
         # ---------------------------------------------------------------
 
-        upload_time = datetime.utcnow().isoformat()
+        upload_time = datetime.now(timezone.utc).isoformat()
 
         custom_metadata = metadata or {}
 
@@ -396,32 +396,24 @@ class QdrantIndexManager:
                 # Upload information.
                 "upload_time": upload_time,
 
+                # Hierarchical folder location
+                "folder_id": custom_metadata.get("folder_id"),
+                "folder_path": custom_metadata.get("folder_path", "/"),
+
                 # Optional extractor metadata:
                 # page, slide, sheet, section, etc.
                 **custom_metadata,
             }
 
-
             point = PointStruct(
-
                 id=point_id,
-
                 vector={
-
-                    "dense": chunk[
-                        "embedding"
-                    ],
-
+                    "dense": chunk["dense_vector"],
                     "sparse": SparseVector(
-                        indices=sparse_data[
-                            "indices"
-                        ],
-                        values=sparse_data[
-                            "values"
-                        ],
+                        indices=sparse_data["indices"],
+                        values=sparse_data["values"],
                     ),
                 },
-
                 payload=payload,
             )
 
@@ -696,10 +688,43 @@ class QdrantIndexManager:
                 "upload_time"
             ),
 
+            "folder_id": payload.get("folder_id"),
+            "folder_path": payload.get("folder_path", "/"),
+
             "relevance_score": float(
                 result.score
             ),
         }
+
+    def update_file_folder(
+        self,
+        file_id: str,
+        folder_id: Optional[str],
+        folder_path: Optional[str] = "/",
+    ):
+        """Update folder_id and folder_path for all indexed chunks of a file."""
+        if not self.client:
+            return
+        try:
+            from qdrant_client import models
+            self.client.set_payload(
+                collection_name=COLLECTION_NAME,
+                payload={
+                    "folder_id": folder_id,
+                    "folder_path": folder_path or "/",
+                },
+                points=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="file_id",
+                            match=models.MatchValue(value=file_id),
+                        )
+                    ]
+                ),
+            )
+            logger.info("[Qdrant] Updated folder metadata for file_id=%s -> folder_id=%s (%s)", file_id, folder_id, folder_path)
+        except Exception as exc:
+            logger.warning("[Qdrant] Could not update folder payload for %s: %s", file_id, exc)
 
 
     # -----------------------------------------------------------------------

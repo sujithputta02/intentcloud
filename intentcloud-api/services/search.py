@@ -242,6 +242,8 @@ def execute_search_pipeline(
             )
             is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= SPARSE_BASELINE_MIN_SCORE
             confidence_msg = "Sparse keyword search completed."
+            if not is_confident:
+                final_results = []
 
         elif search_mode == "dense":
             # Dense Only Baseline
@@ -259,6 +261,8 @@ def execute_search_pipeline(
             )
             is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= DENSE_BASELINE_MIN_SCORE
             confidence_msg = "Dense semantic search completed."
+            if not is_confident:
+                final_results = []
 
         elif search_mode == "rrf_only":
             # Hybrid RRF without Cross-Encoder Reranking
@@ -285,6 +289,8 @@ def execute_search_pipeline(
             )
             is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= RRF_BASELINE_MIN_SCORE
             confidence_msg = "Hybrid RRF fusion completed."
+            if not is_confident:
+                final_results = []
 
         else:
             # Phase 4 Hybrid + RRF + Cross-Encoder Rerank (Default & Recommended)
@@ -335,6 +341,8 @@ def execute_search_pipeline(
                 intent_query=intent_query,
             )
             final_results = deduplicate_results_by_file(final_results, top_k)
+            if not is_confident:
+                final_results = []
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.info(
@@ -444,6 +452,8 @@ def _format_baseline_results(
                 "explanation": explanation,
                 "upload_time": item.get("upload_time"),
                 "keywords": item.get("keywords", []),
+                "folder_id": item.get("folder_id"),
+                "folder_path": item.get("folder_path", "/"),
             }
         )
 
