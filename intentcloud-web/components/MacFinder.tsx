@@ -85,25 +85,43 @@ export default function MacFinder({
   const [isCreatingFolder, setIsCreatingFolder] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [activeAudioPlayingId, setActiveAudioPlayingId] = useState<string | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch Folders from API
-  const fetchFolders = async () => {
+  const [localFiles, setLocalFiles] = useState<FileItem[]>(files);
+
+  // Sync with prop if it changes
+  useEffect(() => {
+    if (files && files.length > 0) {
+      setLocalFiles(files);
+    }
+  }, [files]);
+
+  // Fetch Folders and Files from API directly to guarantee fresh data
+  const fetchFilesAndFolders = async () => {
     try {
-      const res = await fetch(`${API_URL}/folders`);
-      if (res.ok) {
-        const data = await res.json();
+      // Fetch Folders
+      const foldersRes = await fetch(`${API_URL}/folders`);
+      if (foldersRes.ok) {
+        const data = await foldersRes.json();
         const folderArray = Array.isArray(data) ? data : data?.folders || [];
         setFolders(folderArray);
       }
+
+      // Fetch Files
+      const filesRes = await fetch(`${API_URL}/files`);
+      if (filesRes.ok) {
+        const filesData = await filesRes.json();
+        if (filesData?.uploaded_files) {
+          setLocalFiles(filesData.uploaded_files);
+        }
+      }
     } catch (err) {
-      console.error("Failed to fetch folders:", err);
+      console.error("Failed to fetch fresh files/folders:", err);
     }
   };
 
   useEffect(() => {
-    fetchFolders();
+    fetchFilesAndFolders();
   }, []);
 
   // Compute Current Folder & Breadcrumb
@@ -150,28 +168,44 @@ export default function MacFinder({
     }
   };
 
-  // Filter Subfolders and Files for current location
+  // Filter Subfolders for current view
   const displayedSubfolders = folders.filter((f) => {
-    if (activeCategory === "all") return false;
     if (searchQuery.trim()) {
       return f.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
-    return f.parent_id === currentFolderId;
+    if (activeCategory === "all") {
+      return !f.parent_id;
+    }
+    if (activeCategory === "documents") {
+      return f.parent_id === currentFolderId;
+    }
+    return false;
   });
 
-  const displayedFiles = files.filter((f) => {
+  // Filter Files for current view
+  const activeFileList = localFiles.length > 0 ? localFiles : files;
+
+  const displayedFiles = activeFileList.filter((f) => {
     if (searchQuery.trim()) {
       return f.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
     if (activeCategory === "all") return true;
+    if (activeCategory === "icloud") return true;
     if (activeCategory === "downloads") {
-      return f.extension === "zip" || f.extension === "dmg" || f.extension === "tar";
+      return ["zip", "dmg", "tar", "gz"].includes((f.extension || "").toLowerCase());
     }
-    // Match by folder_id
+    if (activeCategory === "desktop") {
+      return ["png", "jpg", "jpeg", "svg", "webp"].includes((f.extension || "").toLowerCase());
+    }
+    if (activeCategory === "applications") {
+      return ["py", "sh", "ts", "js", "html", "css"].includes((f.extension || "").toLowerCase());
+    }
+    
+    // In Documents view:
     if (currentFolderId) {
       return f.folder_id === currentFolderId;
     }
-    // Root level files: either no folder_id or in root documents
+    // At root documents: show files not assigned to a subfolder
     return !f.folder_id;
   });
 
@@ -196,7 +230,7 @@ export default function MacFinder({
         onShowToast(`Folder "${newFolderName}" created`);
         setNewFolderName("");
         setNewFolderModalOpen(false);
-        await fetchFolders();
+        await fetchFilesAndFolders();
         onRefresh();
       } else {
         const err = await res.json().catch(() => ({}));
@@ -221,7 +255,7 @@ export default function MacFinder({
       });
       if (res.ok) {
         onShowToast(`Deleted folder "${folderName}"`);
-        await fetchFolders();
+        await fetchFilesAndFolders();
         onRefresh();
       } else {
         onShowToast("Failed to delete folder");
@@ -254,7 +288,7 @@ export default function MacFinder({
 
       if (res.ok) {
         onShowToast(`Uploaded "${file.name}" successfully`);
-        await fetchFolders();
+        await fetchFilesAndFolders();
         onRefresh();
       } else {
         onShowToast(`Upload failed for "${file.name}"`);
@@ -285,7 +319,7 @@ export default function MacFinder({
   };
 
   return (
-    <div className="relative w-full rounded-[36px] p-2 sm:p-6 lg:p-8 bg-gradient-to-tr from-[#2d124d] via-[#a83279] to-[#f97316] shadow-2xl overflow-hidden font-sans">
+    <div className="relative w-full rounded-[24px] sm:rounded-[28px] bg-[#f5f6f8] dark:bg-[#18191e] border border-black/[0.08] dark:border-white/[0.08] shadow-xl overflow-hidden flex flex-col min-h-[640px] font-sans">
       {/* Hidden File Input for Native macOS Finder Uploads */}
       <input
         type="file"
@@ -294,15 +328,8 @@ export default function MacFinder({
         className="hidden"
       />
 
-      {/* Background Ambient Glows */}
-      <div className="absolute -top-24 -left-24 w-96 h-96 bg-purple-500/40 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-amber-500/30 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Main macOS Finder Window Container */}
-      <div className="relative w-full max-w-5xl mx-auto rounded-[28px] sm:rounded-[32px] bg-[#f4f5f8]/95 dark:bg-[#18191e]/95 backdrop-blur-3xl shadow-[0_25px_70px_rgba(0,0,0,0.35)] border border-white/70 dark:border-white/10 overflow-hidden flex flex-col min-h-[600px]">
-        
-        {/* TOP TOOLBAR */}
-        <div className="h-14 px-5 border-b border-black/[0.05] dark:border-white/[0.06] flex items-center justify-between select-none">
+      {/* TOP TOOLBAR */}
+      <div className="h-14 px-5 border-b border-black/[0.05] dark:border-white/[0.06] flex items-center justify-between select-none">
           {/* Traffic Lights & Back Arrow */}
           <div className="flex items-center space-x-5">
             <div className="flex items-center space-x-2">
@@ -823,7 +850,6 @@ export default function MacFinder({
             </div>
           </main>
         </div>
-      </div>
 
       {/* MODAL: NEW FOLDER CREATION */}
       {newFolderModalOpen && (

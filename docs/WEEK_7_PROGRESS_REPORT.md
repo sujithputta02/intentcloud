@@ -73,9 +73,9 @@ Devarakaggalahalli, Harohalli Kanakapura Road, Bangalore South Dt., Karnataka 56
 
 ## Percentage Work Completed
 
-**64%**
+**65%**
 
-*PRD Week 7 target is **65%** (Week 6: 54% → Week 7: 64%). Completed this week: Exact macOS Finder UI redesign and implementation, interactive audio and visual tile previewers, Quick Look modal linkage, and college lab deployment preparation. The remaining 1% (Pi OS flashing and LAN smoke test) will be executed in the college lab in Week 8.*
+*PRD Week 7 target is **65%** (Week 6: 54% → Week 7: 65%). Completed this week: Exact macOS Finder UI redesign and implementation without outer container, live connection to backend folders and files, working folder creation modal, direct file uploads into directories, Quick Look modal linkage, and college lab deployment automation (`setup_pi.sh`). Ready for hands-on college lab edge hardware setup in Week 8.*
 
 ---
 
