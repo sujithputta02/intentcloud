@@ -3,7 +3,7 @@ IntentCloud FastAPI Backend - Phase 1-3 Implementation
 Week 1-3: Scaffolding, Data Ingestion, Embeddings, Intent Parsing
 """
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -12,6 +12,8 @@ import os
 import json
 import uuid
 import time
+import re
+import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Set, List
 import asyncio
@@ -272,13 +274,33 @@ async def upload_document(
         folders = load_folders()
         folder_path = compute_folder_path(clean_folder_id, folders)
 
+        # Parse version and lineage metadata (Objective 3)
+        v_match = re.search(r"[_\-\.](?:v|version)(\d+)", original_filename, re.IGNORECASE)
+        version_num = int(v_match.group(1)) if v_match else 1
+        is_latest = True
+        base_stem = re.sub(r"[_\-\.](?:v|version)\d+", "", Path(original_filename).stem, flags=re.IGNORECASE)
+        parent_id = None
+
         # Save metadata immediately (topic_tags enriched after extraction).
         metadata = load_metadata()
+        for existing_id, existing_meta in metadata.items():
+            existing_stem = re.sub(r"[_\-\.](?:v|version)\d+", "", Path(existing_meta.get("filename", "")).stem, flags=re.IGNORECASE)
+            if existing_stem and existing_stem.lower() == base_stem.lower():
+                parent_id = existing_id
+                if version_num > existing_meta.get("version_number", 1):
+                    existing_meta["is_latest"] = False
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         metadata[file_id] = {
             "file_id": file_id,
             "filename": original_filename,
             "size_bytes": len(contents),
             "upload_time": time.time(),
+            "created_at": now_iso,
+            "modified_at": now_iso,
+            "version_number": version_num,
+            "is_latest": is_latest,
+            "parent_id": parent_id,
             "extension": file_ext.replace(".", "").lower(),
             "file_path": str(file_path),
             "file_type_category": category,
@@ -1141,6 +1163,35 @@ async def batch_move_files(payload: BatchFileMove):
     except Exception as e:
         logger.error(f"Error batch moving files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# Phase 5: Privacy-Preserving Local Feedback (Objective 5)
+# ============================================================================
+
+@app.post("/feedback", tags=["Phase 5: Local Feedback"])
+async def record_interaction_feedback(payload: Dict[str, Any] = Body(...)):
+    """
+    Record local user interaction signal (clicks, downloads, dwell times)
+    completely offline in local storage without transmitting telemetry externally.
+    """
+    try:
+        feedback_file = Path("data/interaction_feedback.json")
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
+        events = []
+        if feedback_file.exists():
+            try:
+                with open(feedback_file, "r") as f:
+                    events = json.load(f)
+            except Exception:
+                events = []
+        payload["timestamp"] = time.time()
+        events.append(payload)
+        with open(feedback_file, "w") as f:
+            json.dump(events[-500:], f, indent=2)
+        return JSONResponse({"status": "recorded", "action": payload.get("action", "unknown")})
+    except Exception as e:
+        logger.error(f"Feedback recording error: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
