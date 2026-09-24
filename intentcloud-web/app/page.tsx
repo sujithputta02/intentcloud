@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
-import { Plus, X, Bell, Search, FileText, Download, Trash2, Folder, UploadCloud, Code2, Image as ImageIcon, Eye } from "lucide-react";
+import { Plus, X, Bell, Search, FileText, Download, Trash2, Folder, UploadCloud, Code2, Image as ImageIcon, Eye, Monitor, FolderTree } from "lucide-react";
 import { getAllTopicDefinitions, getFileCategory, classifyFile, countFilesByTopic } from "@/lib/topics";
 import { API_URL } from "@/lib/api";
 import FilePreviewModal, { PreviewableFile } from "@/components/FilePreviewModal";
+import MacFinder from "@/components/MacFinder";
 
 interface UploadedFile {
   file_id: string;
@@ -14,6 +15,8 @@ interface UploadedFile {
   modified: number;
   extension: string;
   topic_tags?: string[];
+  folder_id?: string | null;
+  folder_path?: string;
 }
 
 interface StatsResponse {
@@ -60,6 +63,7 @@ export default function Home() {
   const [activeFilter, setActiveFilter] = useState<string>("All files");
   const [activeTopicFilter, setActiveTopicFilter] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mainViewMode, setMainViewMode] = useState<"finder" | "clusters">("finder");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -428,47 +432,97 @@ export default function Home() {
           </div>
         </section>
 
-        {/* MY FILES & SEARCH SECTION */}
+        {/* MY FILES & MAC FINDER WORKSPACE */}
         <section className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <h2 className="font-fraunces text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">
-              My files
-            </h2>
-
-            {/* Search Bar */}
-            <form onSubmit={(e) => handleSearch(e)} className="w-full sm:max-w-xl">
-              <div className="flex items-center gap-2 p-1.5 pl-3.5 pr-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus-within:border-[var(--accent)] shadow-sm transition">
-                <Search className="w-4 h-4 text-[var(--text-secondary)] shrink-0" aria-hidden="true" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Ask intent query (e.g. Kafka report)..."
-                  className="flex-1 min-w-0 bg-transparent border-none py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery("");
-                      setSearchResults(null);
-                    }}
-                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition"
-                    aria-label="Clear search"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
+            <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+              <h2 className="font-fraunces text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">
+                Document Workspace
+              </h2>
+              {/* Workspace View Switcher: Finder vs Topic Grid */}
+              <div className="flex items-center bg-[var(--bg-surface)] p-1 rounded-xl border border-[var(--border-subtle)] text-xs shadow-xs">
                 <button
-                  type="submit"
-                  disabled={isSearching}
-                  className="shrink-0 px-4 py-2 bg-[var(--text-primary)] text-[var(--bg-surface)] rounded-full text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
+                  type="button"
+                  onClick={() => setMainViewMode("finder")}
+                  className={`px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition ${
+                    mainViewMode === "finder"
+                      ? "bg-[var(--accent)] text-white shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
                 >
-                  {isSearching ? "..." : "Find"}
+                  <Monitor className="w-3.5 h-3.5" />
+                  <span>macOS Finder</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMainViewMode("clusters")}
+                  className={`px-3 py-1.5 rounded-lg font-semibold flex items-center space-x-1.5 transition ${
+                    mainViewMode === "clusters"
+                      ? "bg-[var(--accent)] text-white shadow-sm"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                >
+                  <FolderTree className="w-3.5 h-3.5" />
+                  <span>Topic Grid</span>
                 </button>
               </div>
-            </form>
+            </div>
+
+            {/* Quick Upload Action */}
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-semibold shadow-sm transition"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Upload to Cloud</span>
+              </button>
+            </div>
           </div>
+
+          {mainViewMode === "finder" ? (
+            <MacFinder
+              files={files}
+              onRefresh={fetchData}
+              onPreview={(file) => setPreviewFile(file)}
+              onShowToast={showToast}
+            />
+          ) : (
+            <>
+              {/* Search Bar for Topic View */}
+              <form onSubmit={(e) => handleSearch(e)} className="w-full sm:max-w-xl">
+                <div className="flex items-center gap-2 p-1.5 pl-3.5 pr-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus-within:border-[var(--accent)] shadow-sm transition">
+                  <Search className="w-4 h-4 text-[var(--text-secondary)] shrink-0" aria-hidden="true" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Ask intent query (e.g. Kafka report)..."
+                    className="flex-1 min-w-0 bg-transparent border-none py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults(null);
+                      }}
+                      className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSearching}
+                    className="shrink-0 px-4 py-2 bg-[var(--text-primary)] text-[var(--bg-surface)] rounded-full text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
+                  >
+                    {isSearching ? "..." : "Find"}
+                  </button>
+                </div>
+              </form>
 
           {/* Dynamic Filter Pills */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -522,7 +576,7 @@ export default function Home() {
                 </div>
               )}
 
-              {searchResults.results.length > 0 ? (
+              {searchResults.is_confident_match && searchResults.results.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {searchResults.results.map((res) => (
                     <div
@@ -755,6 +809,8 @@ export default function Home() {
               )}
             </div>
           )}
+          </>
+        )}
         </section>
 
         {/* UPLOAD MODAL */}

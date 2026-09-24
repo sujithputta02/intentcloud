@@ -27,8 +27,9 @@ Devarakaggalahalli, Harohalli Kanakapura Road, Bangalore South Dt., Karnataka 56
 - Prepared the Review-2 presentation and live demonstration script for the full V1.0 pipeline on local laptop hardware.
 - Validated all four demo phases: document upload, hybrid search, cross-encoder reranking, and out-of-domain abstention.
 - Finalized IEEE Research Paper 1 in IEEEtran LaTeX and plain-text submission formats.
-- Re-ran the 35-query benchmark and achieved 90.6% Top-1 accuracy, 0.953 MRR, and 100% negative-query rejection.
-- Calibrated the confidence threshold (τ = 0.40) for the no-match fallback across the search pipeline.
+- Expanded the evaluation benchmark from 35 to **42 queries** (32 positive + **10 out-of-domain negatives**) and fixed strict abstention so low-confidence queries return **zero result cards** (API + UI).
+- Re-ran the full benchmark: hybrid mode achieved 87.5% Top-1, 100% Top-3, 0.932 MRR; all **10/10** negative controls correctly rejected with empty results at τ = 0.40.
+- Calibrated the confidence threshold (τ = 0.40) for the no-match fallback across the search pipeline and frontend.
 - Procured and verified Raspberry Pi 3B board, power supply, microSD card, and all other required components; only heatsink and cooling kit remain to be ordered in Week 7.
 
 ---
@@ -37,9 +38,9 @@ Devarakaggalahalli, Harohalli Kanakapura Road, Bangalore South Dt., Karnataka 56
 
 | Name of the Student | Contribution |
 |---|---|
-| **Putta Sujith** (ENG23CT0058) | • Prepared and structured the Review-2 presentation slides — architecture overview, four-phase pipeline, benchmark table, and live demo script.<br>• Authored the Methodology and Mathematical Formulation sections of the IEEE research paper (RRF formulation, k=60, logistic sigmoid confidence scoring).<br>• Formatted the IEEE LaTeX manuscript and finalized the plain-text submission package for guide review.<br>• Calibrated the confidence threshold (τ = 0.40) and validated cross-platform inference acceleration (Apple Silicon MPS / CUDA / CPU fallback). |
+| **Putta Sujith** (ENG23CT0058) | • Prepared and structured the Review-2 presentation slides — architecture overview, four-phase pipeline, benchmark table, and live demo script.<br>• Authored the Methodology and Mathematical Formulation sections of the IEEE research paper (RRF formulation, k=60, logistic sigmoid confidence scoring).<br>• Implemented strict abstention in the search API (empty results when confidence < τ) and expanded the negative control set to 10 queries.<br>• Formatted the IEEE LaTeX manuscript and finalized the plain-text submission package for guide review. |
 | **K Vikas Aneesh Reddy** (ENG23CT0052) | • Prepared the Raspberry Pi 3B hardware showcase for the Review-2 panel — unboxed board, power supply, microSD card, and other procured accessories.<br>• Co-authored the System Architecture, Database Design, and Embedded Qdrant sections of the IEEE research paper.<br>• Validated the empirical benchmark comparison table, author affiliations, and IEEE bibliography entries in the paper.<br>• Audited backend service health, Qdrant collections, and file storage integrity ahead of the demo. |
-| **Karnati Mokshith** (ENG23CT0053) | • Polished the Next.js search and upload pages — search mode switcher, top-3 result cards, matched citation highlights, and no-match banner.<br>• Re-ran the 35-query benchmark evaluation and recorded Top-1 accuracy, MRR, and latency numbers for the presentation.<br>• Fixed the home page search bar layout and API proxy integration for a stable live demo.<br>• Tested the full upload-to-search demo flow end-to-end before Review-2. |
+| **Karnati Mokshith** (ENG23CT0053) | • Polished the Next.js search and upload pages — search mode switcher, top-3 result cards, matched citation highlights, and strict no-match banner (hides result cards when not confident).<br>• Re-ran the 42-query benchmark evaluation and recorded Top-1 accuracy, MRR, negative rejection rate, and latency numbers for the presentation.<br>• Fixed the home page search bar layout and API proxy integration for a stable live demo.<br>• Tested the full upload-to-search demo flow end-to-end before Review-2. |
 
 ---
 

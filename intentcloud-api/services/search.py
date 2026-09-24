@@ -242,6 +242,8 @@ def execute_search_pipeline(
             )
             is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= SPARSE_BASELINE_MIN_SCORE
             confidence_msg = "Sparse keyword search completed."
+            if not is_confident:
+                final_results = []
 
         elif search_mode == "dense":
             # Dense Only Baseline
@@ -259,6 +261,8 @@ def execute_search_pipeline(
             )
             is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= DENSE_BASELINE_MIN_SCORE
             confidence_msg = "Dense semantic search completed."
+            if not is_confident:
+                final_results = []
 
         elif search_mode == "rrf_only":
             # Hybrid RRF without Cross-Encoder Reranking
@@ -285,6 +289,8 @@ def execute_search_pipeline(
             )
             is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= RRF_BASELINE_MIN_SCORE
             confidence_msg = "Hybrid RRF fusion completed."
+            if not is_confident:
+                final_results = []
 
         else:
             # Phase 4 Hybrid + RRF + Cross-Encoder Rerank (Default & Recommended)
@@ -324,17 +330,66 @@ def execute_search_pipeline(
                     },
                 }
 
-            # Cross-Encoder Reranking with dual query alignment
+            # Objective 3: Query-Aware Metadata Lineage & Recency Conditioning
+            lower_q = query.lower()
+            intent_type = intent_data.get("intent_type", "find")
+            wants_recent = "recent" in lower_q or "latest" in lower_q or "newest" in lower_q or intent_type == "recent"
+            wants_historical = "historical" in lower_q or "original" in lower_q or "draft" in lower_q or "v1" in lower_q
+            
+            for cand in fused_candidates:
+                meta_boost = 0.0
+                fname = cand.get("filename", "").lower()
+                is_latest = cand.get("is_latest", True)
+                version_num = cand.get("version_number", 1)
+                
+                if wants_recent:
+                    if is_latest or "_v2" in fname or "_v3" in fname:
+                        meta_boost += 0.003
+                elif wants_historical:
+                    if not is_latest or "_v1" in fname or "draft" in fname:
+                        meta_boost += 0.003
+                
+                if meta_boost > 0:
+                    cand["rrf_score"] = round(cand["rrf_score"] + meta_boost, 6)
+            
+            # Re-sort after metadata lineage adjustment
+            fused_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
+
+            # Objective 5: Adaptive Reranking Bypass (Fast-Path on High-Confidence Separation)
+            can_bypass = False
+            top_gap: float = 0.0
+            if len(fused_candidates) >= 2:
+                top_gap = fused_candidates[0]["rrf_score"] - fused_candidates[1]["rrf_score"]
+                # If gap is sufficiently high and exact keyword overlap matches
+                if top_gap >= 0.008 and (search_mode == "adaptive" or intent_type in ["find", "technical"]):
+                    can_bypass = True
+
             reranker = get_reranker()
             intent_query = build_intent_clean_query(query, intent_data)
-            final_results, is_confident, confidence_msg = reranker.rerank_candidates(
-                query=query,
-                candidates=fused_candidates,
-                top_k=top_k * 3,
-                confidence_threshold=confidence_threshold,
-                intent_query=intent_query,
-            )
-            final_results = deduplicate_results_by_file(final_results, top_k)
+
+            if can_bypass:
+                logger.info("[Adaptive Route] Fast-path routing: Bypassing cross-encoder (margin=%.4f)", top_gap)
+                final_results = _format_baseline_results(
+                    deduplicate_results_by_file(fused_candidates, top_k),
+                    query=query,
+                    intent_data=intent_data,
+                    mode_name="Adaptive Fast-Path (RRF Bypass)",
+                )
+                is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= RRF_BASELINE_MIN_SCORE
+                confidence_msg = "Adaptive Fast-Path match verified."
+            else:
+                # Deep-Path: Cross-Encoder Reranking
+                final_results, is_confident, confidence_msg = reranker.rerank_candidates(
+                    query=query,
+                    candidates=fused_candidates,
+                    top_k=top_k * 3,
+                    confidence_threshold=confidence_threshold,
+                    intent_query=intent_query,
+                )
+                final_results = deduplicate_results_by_file(final_results, top_k)
+
+            if not is_confident:
+                final_results = []
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.info(
@@ -444,6 +499,8 @@ def _format_baseline_results(
                 "explanation": explanation,
                 "upload_time": item.get("upload_time"),
                 "keywords": item.get("keywords", []),
+                "folder_id": item.get("folder_id"),
+                "folder_path": item.get("folder_path", "/"),
             }
         )
 

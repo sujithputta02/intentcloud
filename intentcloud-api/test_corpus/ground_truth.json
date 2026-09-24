@@ -1,6 +1,6 @@
 {
-  "version": "2.0",
-  "description": "Week 5 benchmark evaluation dataset (35 queries covering dense, sparse, hybrid, and confidence thresholding)",
+  "version": "2.1",
+  "description": "Week 6 benchmark evaluation dataset (32 positive + 10 out-of-domain negative queries)",
   "eval_queries": [
     {
       "id": "query_001",
@@ -280,6 +280,62 @@
       "expected_files": [],
       "intent_type": "find",
       "keywords": ["hieroglyphics", "Egyptian", "ancient"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_004",
+      "query": "Best yoga poses for lower back pain beginners at home",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["yoga", "back pain", "poses"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_005",
+      "query": "FIFA World Cup 2026 match schedule stadium tickets booking",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["FIFA", "World Cup", "tickets"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_006",
+      "query": "Homemade margherita pizza dough recipe with fresh mozzarella",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["pizza", "mozzarella", "recipe"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_007",
+      "query": "Skincare routine for oily acne prone skin dermatologist tips",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["skincare", "acne", "routine"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_008",
+      "query": "Train timetable from London to Edinburgh on Sunday morning",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["train", "London", "Edinburgh"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_009",
+      "query": "Dog training commands for Labrador puppies basic obedience",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["dog", "training", "Labrador"],
+      "expect_confident_match": false
+    },
+    {
+      "id": "neg_query_010",
+      "query": "Wedding invitation card design templates free download Canva",
+      "expected_files": [],
+      "intent_type": "find",
+      "keywords": ["wedding", "invitation", "templates"],
       "expect_confident_match": false
     }
   ],

@@ -252,7 +252,7 @@ export default function SearchPage() {
                 <div className="space-y-1 text-sm">
                   <h4 className="font-bold font-fraunces">No Confident Match Found</h4>
                   <p className="text-xs opacity-90 leading-relaxed">
-                    {searchResults.confidence_message || "The top search candidates scored below the confidence threshold. The results below are weak/partial semantic matches."}
+                    {searchResults.confidence_message || "No matching document in your library met the confidence threshold for this query."}
                   </p>
                   <p className="text-xs font-semibold pt-1">
                     Tip: Try using specific technical terms, keywords, or checking uploaded documents.
@@ -325,7 +325,8 @@ export default function SearchPage() {
               </div>
             </div>
 
-            {/* Results cards */}
+            {/* Results cards — hidden when confidence gate abstains */}
+            {searchResults.is_confident_match && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-fraunces text-xl font-bold text-[var(--text-primary)]">
@@ -418,6 +419,7 @@ export default function SearchPage() {
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
 
