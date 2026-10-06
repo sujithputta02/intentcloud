@@ -1,0 +1,10 @@
+# Serverless Cold Start Mitigation Notes
+
+Domain: Cloud Computing
+Filename: serverless_cold_start_mitigation_notes.txt
+
+## Abstract
+Operational engineering notes: Function-as-a-Service cold start latency analysis, provisioned concurrency, pre-warming, and snapshot restore.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

@@ -1,0 +1,10 @@
+# Async Event Loop Epoll Notes
+
+Domain: Operating Systems
+Filename: async_event_loop_epoll_notes.txt
+
+## Abstract
+Operational engineering notes: Non-blocking I/O multiplexing with epoll edge-triggered notifications, kqueue, and asynchronous event loops.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

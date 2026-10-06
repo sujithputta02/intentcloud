@@ -1,0 +1,10 @@
+# Edge Inference Onnx Runtime Notes
+
+Domain: Edge Iot
+Filename: edge_inference_onnx_runtime_notes.txt
+
+## Abstract
+Operational engineering notes: Optimizing neural inference latency on ARM NEON SIMD instructions using INT8 ONNX Runtime execution providers.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

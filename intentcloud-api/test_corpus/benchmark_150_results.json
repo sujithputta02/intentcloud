@@ -1,0 +1,35 @@
+{
+  "corpus_size": 150,
+  "domains_count": 10,
+  "queries_count": 50,
+  "results": {
+    "sparse": {
+      "name": "Mode A: Sparse Keyword Baseline (BM25)",
+      "top1_acc": 72.5,
+      "top3_acc": 95.0,
+      "mrr": 0.838,
+      "neg_rejection": 20.0,
+      "avg_latency_ms": 1.9
+    },
+    "dense": {
+      "name": "Mode B: Dense Semantic Baseline (MiniLM-L6)",
+      "top1_acc": 72.5,
+      "top3_acc": 90.0,
+      "mrr": 0.787,
+      "neg_rejection": 100.0,
+      "avg_latency_ms": 8.5
+    },
+    "hybrid": {
+      "name": "Mode C: Proposed Hybrid + RRF (k=60) + Cross-Encoder",
+      "top1_acc": 95.0,
+      "top3_acc": 100.0,
+      "mrr": 0.971,
+      "neg_rejection": 100.0,
+      "avg_latency_ms": 176.7
+    }
+  },
+  "deltas": {
+    "top1_vs_dense": 22.5,
+    "top1_vs_sparse": 22.5
+  }
+}

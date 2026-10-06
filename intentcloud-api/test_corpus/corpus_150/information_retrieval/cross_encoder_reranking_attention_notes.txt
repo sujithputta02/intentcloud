@@ -1,0 +1,10 @@
+# Cross Encoder Reranking Attention Notes
+
+Domain: Information Retrieval
+Filename: cross_encoder_reranking_attention_notes.txt
+
+## Abstract
+Operational engineering notes: Full cross-attention token interactions in cross-encoders for precision query-document reranking and classification.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

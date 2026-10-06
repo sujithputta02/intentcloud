@@ -1,0 +1,10 @@
+# Domain Driven Design Patterns Notes
+
+Domain: Software Architecture
+Filename: domain_driven_design_patterns_notes.txt
+
+## Abstract
+Operational engineering notes: Bounded contexts, aggregates, entities, value objects, and domain events in enterprise domain-driven design.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

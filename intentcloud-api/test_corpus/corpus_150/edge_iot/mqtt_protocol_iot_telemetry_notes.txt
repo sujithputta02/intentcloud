@@ -1,0 +1,10 @@
+# Mqtt Protocol Iot Telemetry Notes
+
+Domain: Edge Iot
+Filename: mqtt_protocol_iot_telemetry_notes.txt
+
+## Abstract
+Operational engineering notes: MQTT QoS levels 0, 1, 2, keep-alive pinging, last will and testament, and topic wildcards for constrained edge devices.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

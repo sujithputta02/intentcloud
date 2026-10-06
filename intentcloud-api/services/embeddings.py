@@ -19,7 +19,7 @@ Important:
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any, Union
 from collections import Counter
 import hashlib
 import logging
@@ -599,147 +599,191 @@ def generate_dense_embeddings(
 # ---------------------------------------------------------------------------
 
 def generate_embeddings(
-    text_content: str,
+    text_content: Union[str, Dict[str, Any]],
     chunk_size: int = CHUNK_SIZE_CHARS,
     overlap: int = CHUNK_OVERLAP_CHARS,
+    document_title: Optional[str] = None,
+    document_category: Optional[str] = None,
+    doc_title: Optional[str] = None,
+    doc_category: Optional[str] = None,
 ) -> Dict:
     """
-    Complete document representation.
+    Complete Document-Memory representation.
+    Supports either raw string or rich DocumentTree (from extract_document_tree).
 
-    Output:
-
-    {
-        "chunks": [
-            {
-                "chunk_index": 0,
-                "text": "...",
-                "embedding": [...384 values...],
-                "keywords": [...],
-                "sparse_vector": {
-                    "indices": [...],
-                    "values": [...]
-                }
-            }
-        ],
-        "chunk_count": N,
-        "embedding_dim": 384,
-        "document_keywords": [...],
-        "document_sparse_vector": {...},
-        "document_embedding": [...]
-    }
-
-    This is the main function that the upload pipeline should call.
+    Produces:
+    - Structure-aware semantic chunks enriched with local context (doc title, section path).
+    - Chunk sequence graph pointers (prev_chunk_index, next_chunk_index, section_path).
+    - Document-level summary node vector for hierarchical matching.
     """
-
     try:
+        final_title = doc_title or document_title
+        final_category = doc_category or document_category
 
-        normalized_text = normalize_text(text_content)
+        # Determine if input is a structured DocumentTree dict or raw string
+        if isinstance(text_content, dict):
+            resolved_title = text_content.get("title") or final_title or "Document"
+            resolved_category = text_content.get("category") or final_category or "document"
+            sections = text_content.get("sections", [])
+            normalized_text = normalize_text(text_content.get("full_text", ""))
+        else:
+            resolved_title = final_title or "Document"
+            resolved_category = final_category or "document"
+            sections = []
+            normalized_text = normalize_text(text_content)
 
-        if not normalized_text:
+        doc_title = resolved_title
+        doc_category = resolved_category
 
+        if not normalized_text and not sections:
             return {
                 "chunks": [],
                 "chunk_count": 0,
                 "embedding_dim": EMBEDDING_DIM,
                 "document_keywords": [],
-                "document_sparse_vector": {
-                    "indices": [],
-                    "values": [],
-                },
+                "document_sparse_vector": {"indices": [], "values": []},
                 "document_embedding": [],
             }
 
         logger.info(
-            "[Embeddings] Processing %d characters",
+            "[Embeddings] Processing '%s' (%d chars, %d sections)",
+            doc_title,
             len(normalized_text),
+            len(sections),
         )
 
-        chunks = chunk_text(
-            normalized_text,
-            chunk_size=chunk_size,
-            overlap=overlap,
-        )
+        # Build raw chunk candidates with section metadata
+        raw_units: List[Dict[str, Any]] = []
 
-        logger.info(
-            "[Embeddings] Created %d chunks",
-            len(chunks),
-        )
+        if sections:
+            for sec in sections:
+                sec_text = normalize_text(sec.get("text", ""))
+                sec_title = sec.get("title", "Section")
+                sec_path = sec.get("section_path", [doc_title, sec_title])
+                sec_page = sec.get("page", 1)
 
-        if not chunks:
+                if not sec_text:
+                    continue
 
+                sec_chunks = chunk_text(sec_text, chunk_size=chunk_size, overlap=overlap)
+                for sc in sec_chunks:
+                    raw_units.append({
+                        "raw_text": sc,
+                        "section_title": sec_title,
+                        "section_path": sec_path,
+                        "page": sec_page,
+                    })
+        else:
+            # Fallback to standard chunking
+            flat_chunks = chunk_text(normalized_text, chunk_size=chunk_size, overlap=overlap)
+            for sc in flat_chunks:
+                raw_units.append({
+                    "raw_text": sc,
+                    "section_title": "General",
+                    "section_path": [doc_title],
+                    "page": 1,
+                })
+
+        if not raw_units:
             return {
                 "chunks": [],
                 "chunk_count": 0,
                 "embedding_dim": EMBEDDING_DIM,
                 "document_keywords": [],
-                "document_sparse_vector": {
-                    "indices": [],
-                    "values": [],
-                },
+                "document_sparse_vector": {"indices": [], "values": []},
                 "document_embedding": [],
             }
 
-        dense_embeddings = generate_dense_embeddings(chunks)
+        # Build context-enriched embedding text for each chunk
+        # [DOCUMENT: Title | CATEGORY: Category] [SECTION: Path] Content
+        total_chunks = len(raw_units)
+        enriched_texts: List[str] = []
+
+        for idx, unit in enumerate(raw_units):
+            path_str = " > ".join(unit["section_path"])
+            enriched = (
+                f"[DOCUMENT: {doc_title} | CATEGORY: {doc_category}]\n"
+                f"[SECTION: {path_str} | CHUNK {idx + 1}/{total_chunks}]\n"
+                f"{unit['raw_text']}"
+            )
+            enriched_texts.append(enriched)
+
+        # Generate dense embeddings on enriched text (captures document DNA + fine details)
+        dense_embeddings = generate_dense_embeddings(enriched_texts)
 
         chunk_records = []
-
-        for index, (chunk, embedding) in enumerate(
-            zip(chunks, dense_embeddings)
+        for idx, (unit, enriched, embedding) in enumerate(
+            zip(raw_units, enriched_texts, dense_embeddings)
         ):
+            prev_idx = idx - 1 if idx > 0 else None
+            next_idx = idx + 1 if idx < total_chunks - 1 else None
 
-            chunk_records.append(
-                {
-                    "chunk_index": index,
-                    "text": chunk,
-                    "embedding": embedding.tolist(),
-                    "keywords": extract_keywords(
-                        chunk,
-                        max_keywords=10,
-                    ),
-                    "sparse_vector": build_sparse_vector(
-                        chunk
-                    ),
-                }
-            )
+            chunk_records.append({
+                "chunk_index": idx,
+                "text": unit["raw_text"],
+                "enriched_text": enriched,
+                "section_path": unit["section_path"],
+                "parent_section": unit["section_title"],
+                "page": unit.get("page", 1),
+                "prev_chunk_index": prev_idx,
+                "next_chunk_index": next_idx,
+                "unit_type": "chunk",
+                "embedding": embedding.tolist(),
+                "dense_vector": embedding.tolist(),
+                "keywords": extract_keywords(enriched, max_keywords=10),
+                "sparse_vector": build_sparse_vector(enriched),
+            })
 
-        # Full-document representation via mean pooling
-        document_vector = np.mean(
-            dense_embeddings,
-            axis=0,
-        )
+        # Generate Document Summary Node
+        document_keywords = extract_keywords(normalized_text, max_keywords=MAX_KEYWORDS)
+        document_sparse = build_sparse_vector(normalized_text)
 
+        document_vector = np.mean(dense_embeddings, axis=0)
         norm = np.linalg.norm(document_vector)
-
         if norm > 0:
             document_vector = document_vector / norm
 
-        document_sparse = build_sparse_vector(
-            normalized_text
+        # Add top-level Document Summary representation
+        summary_text = (
+            f"[DOCUMENT SUMMARY: {doc_title} | CATEGORY: {doc_category}]\n"
+            f"Key Topics: {', '.join(document_keywords[:12])}\n"
+            f"Content Abstract: {normalized_text[:400]}"
         )
+        summary_embedding = generate_dense_embeddings([summary_text])[0]
 
-        document_keywords = extract_keywords(
-            normalized_text,
-            max_keywords=MAX_KEYWORDS,
+        chunk_records.append({
+            "chunk_index": total_chunks,
+            "text": summary_text,
+            "enriched_text": summary_text,
+            "section_path": [doc_title, "Document Overview"],
+            "parent_section": "Document Overview",
+            "page": 1,
+            "prev_chunk_index": None,
+            "next_chunk_index": None,
+            "unit_type": "document_summary",
+            "embedding": summary_embedding.tolist(),
+            "dense_vector": summary_embedding.tolist(),
+            "keywords": document_keywords,
+            "sparse_vector": build_sparse_vector(summary_text),
+        })
+
+        logger.info(
+            "[Embeddings] Generated %d structural chunks + 1 summary node for '%s'",
+            total_chunks,
+            doc_title,
         )
 
         return {
             "chunks": chunk_records,
             "chunk_count": len(chunk_records),
             "embedding_dim": EMBEDDING_DIM,
-            "document_embedding": document_vector.astype(
-                np.float32
-            ).tolist(),
+            "document_embedding": document_vector.astype(np.float32).tolist(),
             "document_keywords": document_keywords,
             "document_sparse_vector": document_sparse,
         }
 
     except Exception as exc:
-
-        logger.exception(
-            "[Embeddings] Generation failed: %s",
-            exc,
-        )
-
+        logger.exception("[Embeddings] Generation failed: %s", exc)
         raise
 
 

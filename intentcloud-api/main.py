@@ -36,6 +36,7 @@ DOCUMENT_EXTENSIONS: Set[str] = {".pdf", ".docx", ".doc", ".txt"}
 try:
     from services.extraction import (
         extract_text_from_upload,
+        extract_document_tree,
         get_file_category,
         CODE_EXTENSIONS_MAP,
         IMAGE_EXTENSIONS,
@@ -230,6 +231,33 @@ async def health_check():
         )
 
 # ============================================================================
+# Edge Hardware OLED Display Telemetry
+# ============================================================================
+
+latest_device_oled_state: Dict[str, Any] = {
+    "status": "ONLINE",
+    "edge_ip": "192.168.2.2",
+    "hw_info": "Pi 3B | Qdrant 384D",
+    "last_query": "Ready for query",
+    "top_result": None,
+    "last_updated": time.time(),
+}
+
+@app.get("/device/oled", tags=["Edge Hardware"])
+@app.get("/device/telemetry", tags=["Edge Hardware"])
+async def get_device_telemetry():
+    """Retrieve live Edge Device & OLED status matching firmware/main.py"""
+    return JSONResponse(latest_device_oled_state)
+
+@app.post("/device/oled/push", tags=["Edge Hardware"])
+async def push_device_telemetry(payload: Dict[str, Any]):
+    """Update OLED display state and sync to physical edge device"""
+    global latest_device_oled_state
+    latest_device_oled_state.update(payload)
+    latest_device_oled_state["last_updated"] = time.time()
+    return JSONResponse({"status": "pushed", "telemetry": latest_device_oled_state})
+
+# ============================================================================
 # Phase 1: Upload & Extraction
 # ============================================================================
 
@@ -344,15 +372,21 @@ def process_document_pipeline(file_id: str, file_path: str, filename: str, folde
             logger.error("[Pipeline] Qdrant manager not initialized")
             return
         
-        text_content = extract_text_from_upload(file_path, original_filename=filename)
+        doc_tree = extract_document_tree(file_path, original_filename=filename)
+        text_content = doc_tree.get("full_text", "")
         if not text_content or len(text_content.strip()) < 10:
             logger.error(f"[Error] Extraction failed or insufficient text")
             return
         
-        logger.info(f"[Step 1] Extracted {len(text_content)} chars")
+        logger.info(f"[Step 1] Extracted {len(text_content)} chars and {len(doc_tree.get('sections', []))} sections")
         
-        # Generate universal embeddings (dense + sparse + keywords)
-        representation = generate_embeddings(text_content)
+        # Generate universal embeddings from structural DocumentTree
+        file_cat = Path(file_path).suffix.lower().replace(".", "")
+        representation = generate_embeddings(
+            doc_tree,
+            doc_title=filename,
+            doc_category=file_cat,
+        )
         chunk_count = representation["chunk_count"]
         logger.info(f"[Step 2] Generated {chunk_count} chunks with dense + sparse vectors")
         
@@ -362,8 +396,8 @@ def process_document_pipeline(file_id: str, file_path: str, filename: str, folde
         result = qdrant_manager.upsert_document(
             file_id=file_id,
             filename=filename,
-            text_content=text_content,
-            file_type=Path(file_path).suffix.lower().replace(".", ""),
+            text_content=doc_tree,
+            file_type=file_cat,
             metadata={
                 "folder_id": folder_id,
                 "folder_path": folder_path,
@@ -574,6 +608,20 @@ async def search_documents(
             is_confident = False
             confidence_msg = f"No confident match found inside '{target_folder_name}' ({target_folder_path}). Other matching documents exist in outside folders."
 
+        # Update edge OLED telemetry state
+        top_match = final_results[0] if final_results else None
+        if top_match and is_confident:
+            latest_device_oled_state["status"] = "PUSHED"
+            latest_device_oled_state["last_query"] = query
+            latest_device_oled_state["top_result"] = {
+                "filename": top_match.get("filename", ""),
+                "relevance_percentage": top_match.get("relevance_percentage", 0),
+                "rank": 1,
+            }
+            latest_device_oled_state["hw_info"] = f"Pi 3B | {top_match.get('relevance_percentage', 0)}% Match"
+            latest_device_oled_state["last_updated"] = time.time()
+            logger.info("[Edge OLED] Synchronized search result to OLED display: %s (%d%%)", top_match.get("filename"), top_match.get("relevance_percentage", 0))
+
         return JSONResponse({
             "query": query,
             "search_mode": search_output.get("search_mode", search_mode),
@@ -585,6 +633,7 @@ async def search_documents(
             "results": final_results,
             "count": len(final_results),
             "metrics": search_output.get("metrics", {}),
+            "device_telemetry": latest_device_oled_state,
         })
     except HTTPException:
         raise
@@ -710,11 +759,32 @@ async def get_file_content(file_id: str):
                     text_content = f.read()
         else:
             # For photos/pdfs, extract any visual text / OCR / VLM description
-            try:
-                from services.extraction import extract_text_from_upload
-                visual_metadata = extract_text_from_upload(str(file_path), original_filename=filename)
-            except Exception:
-                visual_metadata = ""
+            # 1. First check if Qdrant already indexed this file with rich visual metadata & swatches
+            if qdrant_manager and qdrant_manager.client:
+                try:
+                    from qdrant_client import models
+                    scroll_res, _ = qdrant_manager.client.scroll(
+                        collection_name=QDRANT_COLLECTION,
+                        scroll_filter=models.Filter(
+                            must=[models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))]
+                        ),
+                        limit=10,
+                        with_payload=True,
+                    )
+                    if scroll_res:
+                        scroll_res_sorted = sorted(scroll_res, key=lambda p: (p.payload or {}).get("chunk_index", 0))
+                        texts = [(p.payload or {}).get("chunk_text", "") for p in scroll_res_sorted]
+                        visual_metadata = "\n\n".join([t for t in texts if t])
+                except Exception as qe:
+                    logger.warning(f"Could not load chunks from Qdrant for preview: {qe}")
+
+            # 2. If still empty, fall back to on-the-fly extraction
+            if not visual_metadata:
+                try:
+                    from services.extraction import extract_text_from_upload
+                    visual_metadata = extract_text_from_upload(str(file_path), original_filename=filename)
+                except Exception:
+                    visual_metadata = ""
 
         return JSONResponse({
             "file_id": file_id,

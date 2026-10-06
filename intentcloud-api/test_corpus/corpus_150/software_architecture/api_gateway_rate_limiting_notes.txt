@@ -1,0 +1,10 @@
+# Api Gateway Rate Limiting Notes
+
+Domain: Software Architecture
+Filename: api_gateway_rate_limiting_notes.txt
+
+## Abstract
+Operational engineering notes: Token bucket and leaky bucket rate limiting algorithms implemented in Envoy, Kong, and Spring Cloud API Gateways.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

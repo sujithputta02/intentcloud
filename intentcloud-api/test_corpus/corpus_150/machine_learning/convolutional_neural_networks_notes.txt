@@ -1,0 +1,10 @@
+# Convolutional Neural Networks Notes
+
+Domain: Machine Learning
+Filename: convolutional_neural_networks_notes.txt
+
+## Abstract
+Operational engineering notes: Convolution kernels, receptive fields, stride, padding, feature map pooling, and residual skip connections in deep CNNs.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

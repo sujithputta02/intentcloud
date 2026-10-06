@@ -1,0 +1,10 @@
+# Zero Trust Network Tunnels Notes
+
+Domain: Cybersecurity
+Filename: zero_trust_network_tunnels_notes.txt
+
+## Abstract
+Operational engineering notes: Outbound-only reverse tunnels, identity-aware proxies, and Cloudflare Zero-Trust architecture without inbound open ports.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

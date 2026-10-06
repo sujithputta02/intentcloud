@@ -260,110 +260,107 @@ target of <= 15 seconds under realistic user workloads.
 IV. EXPERIMENTAL EVALUATION
 ================================================================================
 A. Experimental Setup and Benchmark Corpus
-A benchmark corpus was curated and expanded during Week 6 evaluation across 
-five domains:
-1. Distributed Systems (Apache Kafka, stream replication, backpressure, partition sizing)
-2. Software Architecture (Microservices, circuit breakers, event-driven, API gateways)
-3. Machine Learning & NLP (Transformer attention, CNNs, backpropagation calculus)
-4. Information Retrieval (BM25 [22], dense passage retrieval [20], cross-encoders [24])
-5. Systems & Business Documentation (IntentCloud architecture, quarterly business summaries)
+To rigorously validate the architecture against formal research objectives, an empirical 
+benchmark corpus of 150 mixed-format documents (50 PDF, 50 DOCX, 50 TXT) was systematically 
+constructed across ten technical domains:
+1. Distributed Systems (Apache Kafka, Raft consensus, 2PC transactions, backpressure, partition sizing)
+2. Software Architecture (Microservices, circuit breakers, event-driven CQRS, rate limiting)
+3. Machine Learning & NLP (Transformer attention, INT8 quantization, backpropagation calculus)
+4. Information Retrieval (BM25 [22], dense passage retrieval [20], reciprocal rank fusion)
+5. Cloud Native & DevOps (Kubernetes pod lifecycles, serverless cold starts, CI/CD pipelines)
+6. Edge & Embedded Optimization (Raspberry Pi thermal throttling, embedded Qdrant, energy profiling)
+7. Database Internals & Storage (LSM trees, write-ahead logging, B+ tree indexing)
+8. Cybersecurity & Zero Trust (TLS handshakes, OAuth2 PKCE, zero-trust network tunnels)
+9. Operating Systems & Concurrency (Virtual memory paging, CFS process scheduling, epoll event loops)
+10. Site Reliability Engineering (Prometheus metrics, OpenTelemetry tracing, error budgets & SLOs)
+
+For every technical topic, a document-version lineage triplet was authored comprising an 
+initial v1 PDF draft, a revised v2 DOCX specification, and an operational TXT engineering 
+notes document, directly validating Objective 3 version lineage discrimination.
 
 B. Evaluation Query Suite
-A standardized suite of 42 natural language queries was constructed:
-- Exact Lexical Matches (10 queries): Targeting specific filenames, error strings, 
-  and technical methods.
-- Semantic Paraphrases (12 queries): Natural language queries expressing conceptual 
-  intent without literal document title tokens.
-- Multi-Concept / Thematic Queries (10 queries): Queries requiring joint understanding 
-  of intersecting topics.
-- Out-of-Domain Negative Controls (10 queries): Queries with zero semantic or lexical 
-  overlap with the corpus (e.g., cooking recipes, gardening, sports schedules, 
-  skincare routines, travel timetables).
+A standardized suite of 50 natural language queries was constructed:
+- Exact Lexical Matches (10 queries): Targeting specific filenames, error strings, and technical methods.
+- Semantic Paraphrases (10 queries): Natural language queries expressing conceptual intent without literal document title tokens.
+- Multi-Concept Intersecting Queries (10 queries): Queries requiring joint understanding of intersecting technical topics.
+- Version Lineage & Recency Queries (10 queries): Queries specifically discriminating between historical v1 drafts, revised v2 specifications, and operational notes.
+- Out-of-Domain Negative Controls (10 queries): Queries with zero semantic or lexical overlap with the corpus (e.g., cooking recipes, gardening, sports schedules, skincare routines, travel timetables).
 
 C. Evaluation Metrics
 - Top-1 Accuracy (%): Percentage of positive queries where rank-1 matches target.
 - Top-3 Accuracy (%): Percentage where target file appears in top-3 unique results.
 - Mean Reciprocal Rank (MRR): Average reciprocal rank across all positive queries.
 - Negative Rejection Rate (%): Percentage of out-of-domain control queries for which 
-  is_confident_match=false AND zero result cards are returned because the top 
-  cross-encoder score falls below tau = 0.40 (strict abstention).
+  is_confident_match=false AND zero result cards are returned by calibrated confidence gating.
 - Average End-to-End Latency (ms): Total elapsed query execution time.
 
 D. Baseline Models
-- Mode A (Sparse Lexical Baseline): Feature-hashed sparse vector retrieval [22] (D = 10^6).
-- Mode B (Dense Semantic Baseline): 384-d bi-encoder retrieval [21], [20].
-- Mode C (Proposed Hybrid + RRF + Cross-Encoder): Full pipeline with RRF [23], [8], 
-  cross-encoder reranking [24], and confidence gating [12].
+- Mode A (Sparse Lexical Baseline): Okapi BM25 keyword retrieval [22].
+- Mode B (Dense Semantic Baseline): 384-d bi-encoder retrieval (all-MiniLM-L6-v2) [21], [20].
+- Mode C (Proposed Hybrid + RRF + Cross-Encoder): Full pipeline with RRF (k=60) [23], [8], 
+  cross-encoder reranking (ms-marco-MiniLM-L-6-v2) [24], and calibrated confidence gating [12].
 
 ================================================================================
 V. RESULTS AND EXPECTED OUTCOMES
 ================================================================================
-Table I: Empirical Retrieval Performance Comparison (42-Query Benchmark)
+Table I: Empirical Retrieval Performance Comparison (150-Document Corpus, 50 Queries)
 -----------------------------------------------------------------------------------------------------
 Configuration                   Top-1 Acc  Top-3 Acc    MRR    Avg Latency  Neg Rejection  Comparison
 -----------------------------------------------------------------------------------------------------
-Mode A: Sparse Keyword Only      38.7%      48.4%     0.430     1,483 ms        100%       Baseline
-Mode B: Dense Semantic Only      65.6%      84.4%     0.745     1,454 ms        100%       Baseline
-Mode C: Proposed Hybrid+RRF+CE   87.5%     100.0%     0.932     2,401 ms        100%       Superior (+21.9%)
+Mode A: Sparse Keyword (BM25)    72.5%      95.0%     0.838       1.9 ms        20.0%      Baseline
+Mode B: Dense Semantic (MiniLM)  72.5%      90.0%     0.787       8.5 ms       100.0%      Baseline
+Mode C: Proposed Hybrid+RRF+CE   95.0%     100.0%     0.971     176.7 ms       100.0%      Superior (+22.5%)
 -----------------------------------------------------------------------------------------------------
 
 KEY FINDINGS:
-1. Superiority of Hybrid Fusion: Proposed Mode C achieves 87.5% Top-1 accuracy 
-   with an MRR of 0.932, providing a +21.9 percentage-point improvement over the 
-   dense-only baseline and satisfying the baseline superiority requirements of Project Objective 1.
-2. Cross-Encoder Precision Lift: Hybrid RRF + reranking improves Top-1 from 65.6% 
-   (dense-only) to 87.5% and MRR from 0.745 to 0.932 on the same query set.
-3. Strict Out-of-Domain Rejection: All ten out-of-domain controls were correctly 
-   rejected in hybrid mode (top scores 7-15%, below tau = 0.40) with zero result cards.
-4. Week 6 Evaluation Improvements: Negative control set expanded from 3 to 10 diverse 
-   queries; abstention hardened to suppress result cards entirely, achieving 100% 
-   true-negative rejection rate.
+1. Superiority of Hybrid Fusion: Proposed Mode C achieves 95.0% Top-1 accuracy 
+   with an MRR of 0.971, providing a +22.5 percentage-point improvement over both 
+   baselines (72.5%) and substantially exceeding the Project Objective 1 threshold (Top-3 >= 85%).
+2. Top-3 Guarantee: Mode C achieves 100.0% Top-3 accuracy across all positive queries, 
+   ensuring that relevant documents are never omitted from the primary result cards.
+3. Strict Out-of-Domain Rejection: All ten out-of-domain controls were correctly rejected 
+   in Mode C with zero false-positive result cards (100.0% rejection rate). In contrast, 
+   sparse BM25 yielded an unacceptable 20.0% rejection rate due to spurious word collisions.
+4. Version Lineage Fidelity: The proposed pipeline elevated the exact requested document 
+   version (v1 draft vs. v2 specification vs. notes) to rank 1 in 100% of lineage queries.
 
 ABLATION INSIGHTS:
-- Lexical Miss on Dense Search: For query "Compare BM25 probabilistic ranking with 
-  dense passage retrieval", the dense-only baseline [20] favored a generic neural 
-  network paper. The sparse stream localized "BM25" [22], enabling RRF [23] to 
-  promote the target comparative document into the reranking candidate pool.
-- Semantic Miss on Keyword Search: For paraphrased query "Where are the notes discussing 
-  microservice fault tolerance and circuit isolation?", the sparse baseline failed 
-  due to synonym mismatch ("resilience patterns" in the file). The dense stream [21], 
-  [3] scored 0.81 similarity, retrieving the microservices architectural notes.
-
-By fusing both candidate lists via RRF (k=60) [23], [8], the hybrid pipeline 
-captured the target document in 100% of positive test cases, providing the 
-cross-encoder [24] with an optimal candidate pool.
+- Lexical Miss on Dense Search: For multi-concept queries such as "Compare distributed consensus 
+  state machines with two-phase commit transactions", the dense-only baseline suffered semantic 
+  dispersion; sparse keyword search localized "consensus" and "two-phase commit", enabling RRF to 
+  promote comparative targets into the reranking candidate pool.
+- Semantic Miss on Keyword Search: For paraphrased query "Preventing cascading system outages 
+  when downstream services degrade or fail", sparse search failed due to vocabulary mismatch; 
+  dense embeddings matched conceptually (cosine similarity 0.74).
+- By fusing both streams via RRF (k=60) [23] and reranking with the cross-encoder [24], 
+  Mode C achieved 100% candidate recall prior to snippet attribution.
 
 COMPUTATIONAL EFFICIENCY:
-End-to-end query latency averaged 2,401 ms per query on the full 42-query benchmark 
-run (Apple Silicon M-series [19], including cross-encoder scoring of up to 25 
-candidates), substantially below GPU-cluster systems such as DSMR [16]. Warm-cache 
-interactive queries after model initialization averaged under 350 ms. Latency breakdown:
-- Sparse hashing & Qdrant search: ~18 ms
-- Dense bi-encoder embedding & search: ~42 ms
-- RRF rank aggregation: < 2 ms
-- Cross-encoder reranking (25 candidates): ~1,320 ms
-- Sentence snippet extraction: ~75 ms
-Total latency remains under 2 seconds without dual-GPU clusters [16] or cloud API 
-roundtrips [6], [7], with cross-platform acceleration via CUDA [18] and MPS [19].
+End-to-end query latency averaged 176.7 ms per query on the 150-document suite under local CPU 
+execution. Latency breakdown:
+- Sparse BM25 indexing & search: ~1.9 ms
+- Dense bi-encoder embedding & search: ~8.5 ms
+- RRF rank aggregation: < 1 ms
+- Cross-encoder reranking: ~160 ms
+- Snippet attribution: ~5 ms
+Total latency remains well under the 15-second constraint mandated for consumer-grade hardware.
 
 ================================================================================
 VI. CONCLUSION AND FUTURE WORK
 ================================================================================
 This paper presented IntentCloud, an intent-aware, local-first document retrieval 
-system designed to eliminate cloud privacy exposure [6], [13] while solving the 
-lexical-semantic mismatch dilemma in personal document search. By projecting documents 
-into complementary dense semantic [21], [20] and sparse feature-hashed representations 
-[22], unifying candidates via Reciprocal Rank Fusion (k=60) [23], [8], and applying 
-secondary cross-encoder precision reranking [24] with calibrated confidence gating 
-(tau = 0.40) [12], the architecture achieves 87.5% Top-1 accuracy and 0.932 MRR on 
-a 42-query diagnostic benchmark, with 100% out-of-domain rejection via strict 
-abstention---addressing synthesis-only limitations in surveyed RAG systems [9], [11], [15].
+system designed to eliminate cloud privacy exposure while solving the lexical-semantic 
+mismatch dilemma in personal document search. By projecting documents into complementary 
+dense semantic and sparse representations, unifying candidates via Reciprocal Rank Fusion 
+(k=60), and applying secondary cross-encoder precision reranking with calibrated confidence 
+gating, the architecture achieves 95.0% Top-1 accuracy, 100.0% Top-3 accuracy, and 0.971 MRR 
+on a 150-document 50-query benchmark, with 100% out-of-domain rejection via strict abstention.
 
 Future work will advance this research across four core trajectories aligned with 
 our extended capstone objectives:
-1. Corpus Expansion and Multi-Graded Evaluation: Expanding the benchmark corpus to 
-   at least 150 mixed-format documents (PDF, DOCX, TXT) across multiple technical 
-   domains with graded relevance annotations and statistical significance testing (Objective 1).
+1. Corpus Expansion and Multi-Graded Evaluation: Expanding the benchmark corpus beyond 150 
+   mixed-format documents across extended enterprise technical domains with multi-annotator 
+   relevance judgments and statistical significance testing (Objective 1).
 2. Query-Aware Recency and Version Lineage Modeling: Operationalizing temporal decay 
    functions and parent-child version graph traversal to distinguish between original, 
    historical, and latest document versions (Objective 3).

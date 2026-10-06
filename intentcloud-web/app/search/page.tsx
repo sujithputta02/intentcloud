@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles, Zap, Brain, Binary, Shuffle, Search, AlertTriangle, Clock, Cpu, Lightbulb, Download } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import { getFileCategory } from "@/lib/topics";
+import HardwareOledPipeline from "@/components/HardwareOledPipeline";
 
 interface SearchResult {
   file_id: string;
@@ -19,6 +20,11 @@ interface SearchResult {
   explanation: string;
   keywords?: string[];
   upload_time?: string;
+  parent_section?: string;
+  section_path?: string[];
+  evidence_count?: number;
+  matched_sections?: string[];
+  expanded_context?: string;
 }
 
 interface SearchResponse {
@@ -53,6 +59,18 @@ export default function SearchPage() {
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const syncHardwareOled = async (payload: { status?: string; query?: string; info?: string; match?: number }) => {
+    try {
+      await fetch("/api/hardware/oled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // Non-blocking hardware sync
+    }
+  };
+
   const executeSearch = async (queryString: string, mode: string = searchMode, count: number = topK) => {
     if (!queryString.trim()) {
       setError("Please enter a natural language search query");
@@ -62,11 +80,22 @@ export default function SearchPage() {
     setIsSearching(true);
     setError(null);
 
+    // Stream real-time stages to physical ESP32 OLED display
+    syncHardwareOled({ status: "SEARCHING", query: queryString, info: "Cognitive Ingest" });
+    const stageTimers: NodeJS.Timeout[] = [
+      setTimeout(() => syncHardwareOled({ status: "PARSING", query: queryString, info: "llama3.2:1b" }), 1200),
+      setTimeout(() => syncHardwareOled({ status: "ETHERNET", query: queryString, info: "LAN 192.168.2.2" }), 2800),
+      setTimeout(() => syncHardwareOled({ status: "HYBRID", query: queryString, info: "Dense + Sparse" }), 4500),
+      setTimeout(() => syncHardwareOled({ status: "RERANK", query: queryString, info: "MiniLM Neural" }), 7500),
+    ];
+
     try {
       const response = await fetch(
         `${API_URL}/search?query=${encodeURIComponent(queryString)}&top_k=${count}&search_mode=${mode}`,
         { method: "POST" }
       );
+
+      stageTimers.forEach(clearTimeout);
 
       if (!response.ok) {
         throw new Error(`Search request failed (${response.status}: ${response.statusText})`);
@@ -74,7 +103,23 @@ export default function SearchPage() {
 
       const data: SearchResponse = await response.json();
       setSearchResults(data);
+
+      // Push final result to physical OLED screen
+      const topMatch = data.results?.[0];
+      const matchScore = topMatch ? topMatch.relevance_percentage : 0;
+      syncHardwareOled({
+        status: "PUSHED",
+        query: queryString,
+        info: `Pi 3B | ${matchScore}% Match`,
+        match: matchScore,
+      });
     } catch (err) {
+      stageTimers.forEach(clearTimeout);
+      syncHardwareOled({
+        status: "ERROR",
+        query: queryString,
+        info: "Pi Search Error",
+      });
       setError(err instanceof Error ? err.message : "Search query failed");
     } finally {
       setIsSearching(false);
@@ -235,6 +280,16 @@ export default function SearchPage() {
           </div>
         </form>
 
+        {/* Real-Time Pictorial Edge Memory & OLED Pipeline Animation */}
+        <HardwareOledPipeline
+          isSearching={isSearching}
+          query={query}
+          searchMode={searchMode}
+          topResult={searchResults?.results?.[0] || null}
+          metrics={searchResults?.metrics || null}
+          parsedIntent={searchResults?.parsed_intent || null}
+        />
+
         {/* Error message */}
         {error && (
           <div className="p-4 rounded-xl bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-sm font-medium text-center">
@@ -374,6 +429,23 @@ export default function SearchPage() {
                             </span>
                           </div>
                         </div>
+
+                        {/* Document Memory Hierarchy & Evidence Badges */}
+                        {(res.parent_section || (res.evidence_count && res.evidence_count > 1)) && (
+                          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                            {res.parent_section && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)] text-xs font-medium border border-[var(--accent)]/20">
+                                <span className="opacity-70 text-[10px] font-mono uppercase">Section:</span>
+                                <span className="font-semibold">{res.parent_section}</span>
+                              </span>
+                            )}
+                            {res.evidence_count && res.evidence_count > 1 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium border border-emerald-500/20">
+                                <span className="font-semibold">{res.evidence_count} evidence nodes</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {/* Explainable Matched Snippet (Golden Citation Box) */}
                         {snippet && (

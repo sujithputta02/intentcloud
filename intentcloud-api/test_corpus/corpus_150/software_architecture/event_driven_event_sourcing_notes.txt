@@ -1,0 +1,10 @@
+# Event Driven Event Sourcing Notes
+
+Domain: Software Architecture
+Filename: event_driven_event_sourcing_notes.txt
+
+## Abstract
+Operational engineering notes: Event sourcing architecture with Command Query Responsibility Segregation (CQRS), event stores, and snapshotting for aggregate reconstruction.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

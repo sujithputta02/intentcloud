@@ -1,0 +1,10 @@
+# Memory Allocator Ptmalloc Jemalloc Notes
+
+Domain: Operating Systems
+Filename: memory_allocator_ptmalloc_jemalloc_notes.txt
+
+## Abstract
+Operational engineering notes: Thread local caching, arenas, heap fragmentation mitigation, and slab allocation mechanics in jemalloc.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

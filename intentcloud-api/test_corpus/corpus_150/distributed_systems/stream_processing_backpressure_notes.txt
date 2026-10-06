@@ -1,0 +1,10 @@
+# Stream Processing Backpressure Notes
+
+Domain: Distributed Systems
+Filename: stream_processing_backpressure_notes.txt
+
+## Abstract
+Operational engineering notes: Reactive streams backpressure handling, flow control buffers, windowed aggregations, and dynamic rate limiting.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

@@ -1,0 +1,10 @@
+# Raft Consensus Algorithm Notes
+
+Domain: Distributed Systems
+Filename: raft_consensus_algorithm_notes.txt
+
+## Abstract
+Operational engineering notes: Raft consensus protocol state transitions: leader election, log replication, heartbeat intervals, and commit indexes.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

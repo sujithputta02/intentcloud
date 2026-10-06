@@ -1,0 +1,10 @@
+# Embedded Vector Databases Edge Notes
+
+Domain: Edge Iot
+Filename: embedded_vector_databases_edge_notes.txt
+
+## Abstract
+Operational engineering notes: Embedded vector storage using Qdrant and SQLite-VSS on memory-constrained single-board edge hardware.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

@@ -1,0 +1,10 @@
+# Raspberry Pi Thermal Throttling Notes
+
+Domain: Edge Iot
+Filename: raspberry_pi_thermal_throttling_notes.txt
+
+## Abstract
+Operational engineering notes: Thermal dissipation on ARM Cortex-A72: passive vs active cooling, CPU frequency governor scaling, and DVFS throttling.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

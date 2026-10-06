@@ -1,0 +1,10 @@
+# Transformer Multihead Attention Notes
+
+Domain: Machine Learning
+Filename: transformer_multihead_attention_notes.txt
+
+## Abstract
+Operational engineering notes: Scaled dot-product attention, query-key-value matrix projections, and multi-head attention mechanics in transformer encoders.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

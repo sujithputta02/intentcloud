@@ -172,6 +172,68 @@ def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str
     return ". ".join(parts)
 
 
+def group_and_expand_document_evidence(
+    candidates: List[Dict],
+    qdrant_manager,
+    max_files: int = 6,
+) -> List[Dict]:
+    """
+    Document-Memory Evidence Grouping & Context Window Expansion.
+    1. Groups multiple candidate chunks by document (file_id).
+    2. Identifies the primary salient chunk and all supporting evidence chunks.
+    3. Expands primary chunk context with neighboring chunks: [C_{i-1}] + [C_i] + [C_{i+1}].
+    4. Aggregates matched sections and calculates multi-chunk evidence coverage.
+    """
+    file_groups: Dict[str, List[Dict]] = {}
+    for cand in candidates:
+        fid = cand.get("file_id")
+        if fid:
+            file_groups.setdefault(fid, []).append(cand)
+
+    document_candidates: List[Dict] = []
+
+    for fid, group in file_groups.items():
+        # Highest scoring chunk is primary anchor
+        primary = dict(group[0])
+        evidence_count = len(group)
+
+        # Collect distinct sections where evidence appeared
+        matched_sections = list(dict.fromkeys(
+            [c.get("parent_section") for c in group if c.get("parent_section")]
+        ))
+
+        primary["evidence_count"] = evidence_count
+        primary["matched_sections"] = matched_sections
+        primary["evidence_snippets"] = [
+            c.get("chunk_text", "")[:200] for c in group[:3]
+        ]
+        primary["evidence_chunks"] = group
+
+        # Evidence coverage boost: documents matching across multiple sections/chunks get boosted
+        if evidence_count > 1:
+            evidence_boost = min(0.005, (evidence_count - 1) * 0.0015)
+            primary["rrf_score"] = round(primary.get("rrf_score", 0.0) + evidence_boost, 6)
+
+        # Context Window Expansion: Retrieve surrounding neighbors C_{i-1} and C_{i+1}
+        if qdrant_manager and hasattr(qdrant_manager, "get_surrounding_chunks"):
+            chunk_idx = primary.get("chunk_index", 0)
+            surrounding = qdrant_manager.get_surrounding_chunks(fid, chunk_idx)
+            expanded_text = surrounding.get("expanded_text")
+            if expanded_text:
+                primary["expanded_text"] = expanded_text
+                primary["expanded_context"] = expanded_text
+            if not primary.get("parent_section") and surrounding.get("parent_section"):
+                primary["parent_section"] = surrounding.get("parent_section")
+            if not primary.get("section_path") and surrounding.get("section_path"):
+                primary["section_path"] = surrounding.get("section_path")
+
+        document_candidates.append(primary)
+
+    # Re-sort after evidence coverage boost
+    document_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
+    return document_candidates[:max_files]
+
+
 def deduplicate_results_by_file(results: List[Dict], top_k: int) -> List[Dict]:
     """Keep the best-scoring chunk per file so users see distinct documents."""
     seen_files: set[str] = set()
@@ -355,17 +417,17 @@ def execute_search_pipeline(
             # Re-sort after metadata lineage adjustment
             fused_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
 
-            # Objective 5: Adaptive Reranking Bypass (Fast-Path on High-Confidence Separation)
-            can_bypass = False
-            top_gap: float = 0.0
-            if len(fused_candidates) >= 2:
-                top_gap = fused_candidates[0]["rrf_score"] - fused_candidates[1]["rrf_score"]
-                # If gap is sufficiently high and exact keyword overlap matches
-                if top_gap >= 0.008 and (search_mode == "adaptive" or intent_type in ["find", "technical"]):
-                    can_bypass = True
-
+            # Objective 5: Cross-Encoder Reranking with dual query alignment (Default Hybrid Pipeline)
             reranker = get_reranker()
             intent_query = build_intent_clean_query(query, intent_data)
+
+            # Adaptive fast-path bypass is strictly reserved for explicit "adaptive" mode
+            can_bypass = False
+            top_gap: float = 0.0
+            if search_mode == "adaptive" and len(fused_candidates) >= 2:
+                top_gap = fused_candidates[0]["rrf_score"] - fused_candidates[1]["rrf_score"]
+                if top_gap >= 0.02:
+                    can_bypass = True
 
             if can_bypass:
                 logger.info("[Adaptive Route] Fast-path routing: Bypassing cross-encoder (margin=%.4f)", top_gap)
@@ -378,15 +440,19 @@ def execute_search_pipeline(
                 is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= RRF_BASELINE_MIN_SCORE
                 confidence_msg = "Adaptive Fast-Path match verified."
             else:
-                # Deep-Path: Cross-Encoder Reranking
+                # Deep-Path: Cross-Encoder Reranking with Multi-Chunk Evidence Grouping & Context Expansion
+                document_candidates = group_and_expand_document_evidence(
+                    fused_candidates,
+                    qdrant_manager,
+                    max_files=max(top_k * 2, 6),
+                )
                 final_results, is_confident, confidence_msg = reranker.rerank_candidates(
                     query=query,
-                    candidates=fused_candidates,
-                    top_k=top_k * 3,
+                    candidates=document_candidates,
+                    top_k=top_k,
                     confidence_threshold=confidence_threshold,
                     intent_query=intent_query,
                 )
-                final_results = deduplicate_results_by_file(final_results, top_k)
 
             if not is_confident:
                 final_results = []
@@ -492,6 +558,11 @@ def _format_baseline_results(
                 "chunk_index": item.get("chunk_index", 0),
                 "sentence_text": snippet,
                 "matched_snippet": snippet,
+                "parent_section": item.get("parent_section", ""),
+                "section_path": item.get("section_path", []),
+                "evidence_count": item.get("evidence_count", 1),
+                "matched_sections": item.get("matched_sections", []),
+                "expanded_context": item.get("expanded_text") or item.get("expanded_context", ""),
                 "relevance_score": round(rel_score, 4),
                 "relevance_percentage": pct,
                 "rrf_score": item.get("rrf_score", 0.0),

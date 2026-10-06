@@ -1,0 +1,10 @@
+# Container Runtime Cgroups Notes
+
+Domain: Cloud Computing
+Filename: container_runtime_cgroups_notes.txt
+
+## Abstract
+Operational engineering notes: Linux cgroups v2 resource limits, namespaces isolation, and OCI container execution mechanics under containerd.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

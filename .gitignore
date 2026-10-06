@@ -75,3 +75,5 @@ htmlcov/
 
 # Misc
 *.log
+bin/
+.clangd

@@ -75,17 +75,21 @@ class QdrantIndexManager:
         """Derive a stable Qdrant-compatible UUID for a file chunk."""
         return str(uuid.uuid5(POINT_ID_NAMESPACE, f"{file_id}:{chunk_index}"))
 
-    def __init__(self):
+    def __init__(self, storage_path: Optional[str] = None, collection_name: Optional[str] = None):
+
+        self.storage_path = storage_path or QDRANT_PATH
+        self.collection_name = collection_name or COLLECTION_NAME
+        Path(self.storage_path).mkdir(parents=True, exist_ok=True)
 
         try:
 
             logger.info(
                 "[Qdrant] Initializing embedded client at %s",
-                QDRANT_PATH,
+                self.storage_path,
             )
 
             self.client = QdrantClient(
-                path=QDRANT_PATH
+                path=self.storage_path
             )
 
             self._ensure_collection_exists()
@@ -117,23 +121,23 @@ class QdrantIndexManager:
             for collection in collections.collections
         ]
 
-        if COLLECTION_NAME in collection_names:
+        if self.collection_name in collection_names:
 
             logger.info(
                 "[Qdrant] Collection already exists: %s",
-                COLLECTION_NAME,
+                self.collection_name,
             )
 
             return
 
         logger.info(
             "[Qdrant] Creating hybrid collection: %s",
-            COLLECTION_NAME,
+            self.collection_name,
         )
 
         self.client.create_collection(
 
-            collection_name=COLLECTION_NAME,
+            collection_name=self.collection_name,
 
             # Dense vector.
             vectors_config={
@@ -154,7 +158,8 @@ class QdrantIndexManager:
         )
 
         logger.info(
-            "[Qdrant] Hybrid collection created"
+            "[Qdrant] Hybrid collection created: %s",
+            self.collection_name,
         )
 
 
@@ -167,7 +172,7 @@ class QdrantIndexManager:
         try:
 
             info = self.client.get_collection(
-                COLLECTION_NAME
+                self.collection_name
             )
 
             points = getattr(
@@ -182,7 +187,7 @@ class QdrantIndexManager:
 
             return {
                 "status": "healthy",
-                "collection": COLLECTION_NAME,
+                "collection": self.collection_name,
                 "points_count": points,
                 "embedding_dim": EMBEDDING_DIM,
                 "sparse_hash_dim": SPARSE_HASH_DIM,
@@ -214,7 +219,7 @@ class QdrantIndexManager:
     ) -> List[Any]:
         """Run a named-vector similarity query and return scored points."""
         response = self.client.query_points(
-            collection_name=COLLECTION_NAME,
+            collection_name=self.collection_name,
             query=query_vector,
             using=using,
             limit=limit,
@@ -296,7 +301,7 @@ class QdrantIndexManager:
         self,
         file_id: str,
         filename: str,
-        text_content: str,
+        text_content: Union[str, Dict[str, Any]],
         file_type: Optional[str] = None,
         metadata: Optional[Dict] = None,
     ) -> Dict:
@@ -311,11 +316,14 @@ class QdrantIndexManager:
             sparse vector
             file metadata
             chunk metadata
+            structural graph pointers (prev/next chunk, section path)
             dynamic keywords
         """
 
         representation = generate_embeddings(
-            text_content
+            text_content,
+            doc_title=filename,
+            doc_category=file_type,
         )
 
         chunks = representation["chunks"]
@@ -376,6 +384,9 @@ class QdrantIndexManager:
                 "sparse_vector"
             ]
 
+            prev_idx = chunk.get("prev_chunk_index")
+            next_idx = chunk.get("next_chunk_index")
+
             payload = {
 
                 # File identity.
@@ -387,8 +398,19 @@ class QdrantIndexManager:
                 "chunk_index": chunk_index,
                 "chunk_id": chunk_key,
 
-                # Original searchable content.
+                # Original searchable content & enriched structural context.
                 "chunk_text": chunk["text"],
+                "enriched_text": chunk.get("enriched_text", chunk["text"]),
+
+                # Document-Memory Structural Graph Pointers
+                "section_path": chunk.get("section_path", []),
+                "parent_section": chunk.get("parent_section", ""),
+                "page": chunk.get("page", 1),
+                "prev_chunk_index": prev_idx,
+                "next_chunk_index": next_idx,
+                "prev_chunk_id": f"{file_id}:{prev_idx}" if prev_idx is not None else None,
+                "next_chunk_id": f"{file_id}:{next_idx}" if next_idx is not None else None,
+                "unit_type": chunk.get("unit_type", "chunk"),
 
                 # Universal dynamic keywords.
                 "keywords": chunk["keywords"],
@@ -426,7 +448,7 @@ class QdrantIndexManager:
 
         self.client.upsert(
 
-            collection_name=COLLECTION_NAME,
+            collection_name=self.collection_name,
 
             points=points,
         )
@@ -679,6 +701,32 @@ class QdrantIndexManager:
                 "chunk_text"
             ),
 
+            "enriched_text": payload.get(
+                "enriched_text",
+                payload.get("chunk_text")
+            ),
+
+            "section_path": payload.get(
+                "section_path",
+                []
+            ),
+
+            "parent_section": payload.get(
+                "parent_section",
+                ""
+            ),
+
+            "page": payload.get(
+                "page",
+                1
+            ),
+
+            "prev_chunk_index": payload.get("prev_chunk_index"),
+            "next_chunk_index": payload.get("next_chunk_index"),
+            "prev_chunk_id": payload.get("prev_chunk_id"),
+            "next_chunk_id": payload.get("next_chunk_id"),
+            "unit_type": payload.get("unit_type", "chunk"),
+
             "keywords": payload.get(
                 "keywords",
                 [],
@@ -695,6 +743,103 @@ class QdrantIndexManager:
                 result.score
             ),
         }
+
+    def get_surrounding_chunks(self, file_id: str, chunk_index: int) -> Dict[str, Any]:
+        """
+        Fast point retrieval of previous, current, and next chunk
+        for Context Window Expansion: [C_{i-1}] + [C_i] + [C_{i+1}].
+        """
+        target_id = self._make_point_id(file_id, chunk_index)
+        prev_id = self._make_point_id(file_id, chunk_index - 1) if chunk_index > 0 else None
+        next_id = self._make_point_id(file_id, chunk_index + 1)
+
+        ids_to_fetch = [target_id]
+        if prev_id:
+            ids_to_fetch.append(prev_id)
+        ids_to_fetch.append(next_id)
+
+        try:
+            retrieved = self.client.retrieve(
+                collection_name=COLLECTION_NAME,
+                ids=ids_to_fetch,
+                with_payload=True,
+            )
+            points_by_id = {str(p.id): p.payload for p in retrieved if p.payload}
+
+            target_payload = points_by_id.get(target_id, {})
+            prev_payload = points_by_id.get(prev_id, {}) if prev_id else {}
+            next_payload = points_by_id.get(next_id, {}) if next_id else {}
+
+            prev_text = prev_payload.get("chunk_text", "")
+            curr_text = target_payload.get("chunk_text", "")
+            next_text = next_payload.get("chunk_text", "")
+
+            # Compose expanded context window [C_{i-1}] + [C_i] + [C_{i+1}]
+            parts = []
+            if prev_text:
+                parts.append(prev_text)
+            if curr_text:
+                parts.append(curr_text)
+            if next_text:
+                parts.append(next_text)
+
+            expanded_text = "\n\n".join(parts) if parts else curr_text
+
+            return {
+                "target_chunk": target_payload,
+                "prev_chunk": prev_payload if prev_payload else None,
+                "next_chunk": next_payload if next_payload else None,
+                "expanded_text": expanded_text,
+                "section_path": target_payload.get("section_path", []),
+                "parent_section": target_payload.get("parent_section", ""),
+            }
+        except Exception as exc:
+            logger.warning("[Qdrant] get_surrounding_chunks failed for %s:%d: %s", file_id, chunk_index, exc)
+            return {
+                "target_chunk": {},
+                "prev_chunk": None,
+                "next_chunk": None,
+                "expanded_text": "",
+                "section_path": [],
+                "parent_section": "",
+            }
+
+    def get_chunks_for_file(self, file_id: str, limit: int = 50) -> List[Dict]:
+        """Fetch all indexed chunks for a file, ordered by chunk_index."""
+        try:
+            from qdrant_client import models
+            points, _ = self.client.scroll(
+                collection_name=COLLECTION_NAME,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="file_id",
+                            match=models.MatchValue(value=file_id),
+                        )
+                    ]
+                ),
+                limit=limit,
+                with_payload=True,
+            )
+            results = []
+            for p in points:
+                payload = p.payload or {}
+                results.append({
+                    "chunk_id": payload.get("chunk_id", str(p.id)),
+                    "chunk_index": payload.get("chunk_index", 0),
+                    "chunk_text": payload.get("chunk_text", ""),
+                    "enriched_text": payload.get("enriched_text", ""),
+                    "section_path": payload.get("section_path", []),
+                    "parent_section": payload.get("parent_section", ""),
+                    "page": payload.get("page", 1),
+                    "unit_type": payload.get("unit_type", "chunk"),
+                    "keywords": payload.get("keywords", []),
+                })
+            results.sort(key=lambda x: x["chunk_index"])
+            return results
+        except Exception as exc:
+            logger.warning("[Qdrant] get_chunks_for_file failed for %s: %s", file_id, exc)
+            return []
 
     def update_file_folder(
         self,

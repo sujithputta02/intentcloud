@@ -1,0 +1,10 @@
+# Microservices Circuit Breaker Notes
+
+Domain: Software Architecture
+Filename: microservices_circuit_breaker_notes.txt
+
+## Abstract
+Operational engineering notes: Resilience4j and Netflix Hystrix circuit breaker states: closed, open, half-open failure thresholds, and thread pool isolation.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

@@ -1,0 +1,10 @@
+# Loss Functions And Backprop Notes
+
+Domain: Machine Learning
+Filename: loss_functions_and_backprop_notes.txt
+
+## Abstract
+Operational engineering notes: Cross-entropy loss, negative log-likelihood, and backpropagation chain rule gradient updates across neural network layers.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.
