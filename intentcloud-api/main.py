@@ -62,6 +62,18 @@ QDRANT_COLLECTION = "intentcloud_docs"
 METADATA_FILE = UPLOAD_DIR / "metadata.json"
 FOLDERS_FILE = UPLOAD_DIR / "folders.json"
 
+# System-reserved files and directories that must never be exposed as user documents
+SYSTEM_IGNORED_NAMES: Set[str] = {
+    "qdrant_db",
+    "qdrant_storage",
+    "metadata.json",
+    "folders.json",
+    ".DS_Store",
+    "__pycache__",
+    ".git",
+    ".gitignore",
+}
+
 # Ensure upload directory exists
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -70,15 +82,23 @@ def load_metadata() -> Dict[str, Any]:
     if METADATA_FILE.exists():
         try:
             with open(METADATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                return {
+                    k: v for k, v in data.items()
+                    if k not in SYSTEM_IGNORED_NAMES and not k.startswith(".")
+                }
         except Exception as e:
             logger.warning(f"Failed to read metadata.json: {e}")
     return {}
 
 def save_metadata(data: Dict[str, Any]):
     try:
+        clean_data = {
+            k: v for k, v in data.items()
+            if k not in SYSTEM_IGNORED_NAMES and not k.startswith(".")
+        }
         with open(METADATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            json.dump(clean_data, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to write metadata.json: {e}")
 
@@ -172,6 +192,10 @@ async def lifespan(app: FastAPI):
         # Warm up reranker model
         reranker = get_reranker()
         logger.info("✓ Cross-encoder reranker initialized on %s", reranker._device)
+        # Warm up bi-encoder embedding model
+        from services.embeddings import generate_query_representation
+        generate_query_representation("warmup query")
+        logger.info("✓ Bi-encoder embedding model initialized and warmed up")
     except Exception as e:
         logger.error(f"✗ Failed to initialize Qdrant / Reranker: {e}")
         qdrant_manager = None
@@ -503,7 +527,7 @@ async def get_stats():
 # ============================================================================
 
 @app.post("/search", tags=["Phase 4: Search"])
-async def search_documents(
+def search_documents(
     query: str,
     top_k: int = 3,
     search_mode: str = "hybrid",
@@ -533,6 +557,13 @@ async def search_documents(
                 status_code=503,
                 detail="Search not available - Qdrant not initialized"
             )
+        
+        # Stream live OLED telemetry immediately
+        clean_q = query.strip()
+        latest_device_oled_state["status"] = "SEARCHING"
+        latest_device_oled_state["last_query"] = clean_q[:20]
+        latest_device_oled_state["hw_info"] = "Hybrid Ingest"
+        latest_device_oled_state["last_updated"] = time.time()
         
         try:
             intent_data = parse_intent_with_phi3(query)
@@ -612,7 +643,7 @@ async def search_documents(
         top_match = final_results[0] if final_results else None
         if top_match and is_confident:
             latest_device_oled_state["status"] = "PUSHED"
-            latest_device_oled_state["last_query"] = query
+            latest_device_oled_state["last_query"] = query[:20]
             latest_device_oled_state["top_result"] = {
                 "filename": top_match.get("filename", ""),
                 "relevance_percentage": top_match.get("relevance_percentage", 0),
@@ -621,6 +652,13 @@ async def search_documents(
             latest_device_oled_state["hw_info"] = f"Pi 3B | {top_match.get('relevance_percentage', 0)}% Match"
             latest_device_oled_state["last_updated"] = time.time()
             logger.info("[Edge OLED] Synchronized search result to OLED display: %s (%d%%)", top_match.get("filename"), top_match.get("relevance_percentage", 0))
+        else:
+            cand_score = search_output.get("results", [{}])[0].get("relevance_percentage", 0) if search_output.get("results") else 0
+            latest_device_oled_state["status"] = "NO MATCH" if cand_score == 0 else "LOW CONF"
+            latest_device_oled_state["last_query"] = query[:20]
+            latest_device_oled_state["top_result"] = None
+            latest_device_oled_state["hw_info"] = f"Pi 3B | {cand_score}%" if cand_score > 0 else "Pi 3B | Scanned"
+            latest_device_oled_state["last_updated"] = time.time()
 
         return JSONResponse({
             "query": query,
@@ -649,11 +687,14 @@ async def search_documents(
 async def download_file(file_id: str):
     """Download stored document by file_id with its original filename"""
     try:
+        if file_id in SYSTEM_IGNORED_NAMES or file_id.startswith("."):
+            raise HTTPException(status_code=404, detail="File not found")
+
         metadata = load_metadata()
         file_meta = metadata.get(file_id)
         
         # Check metadata first
-        if file_meta and Path(file_meta["file_path"]).exists():
+        if file_meta and Path(file_meta["file_path"]).is_file():
             return FileResponse(
                 path=file_meta["file_path"],
                 filename=file_meta["filename"],
@@ -661,7 +702,7 @@ async def download_file(file_id: str):
             )
         
         # Fallback to scanning directory
-        matching = list(UPLOAD_DIR.glob(f"{file_id}.*"))
+        matching = [p for p in UPLOAD_DIR.glob(f"{file_id}.*") if p.is_file() and p.name not in SYSTEM_IGNORED_NAMES]
         if matching:
             target = matching[0]
             orig_name = file_meta["filename"] if file_meta else target.name
@@ -682,21 +723,24 @@ async def download_file(file_id: str):
 async def preview_file(file_id: str):
     """Serve file for inline browser preview (images, PDFs, text, code)"""
     try:
+        if file_id in SYSTEM_IGNORED_NAMES or file_id.startswith("."):
+            raise HTTPException(status_code=404, detail="File not found")
+
         metadata = load_metadata()
         file_meta = metadata.get(file_id)
         file_path: Optional[Path] = None
         orig_name: str = "document"
 
-        if file_meta and Path(file_meta.get("file_path", "")).exists():
+        if file_meta and Path(file_meta.get("file_path", "")).is_file():
             file_path = Path(file_meta["file_path"])
             orig_name = file_meta.get("filename", file_path.name)
         else:
-            matching = list(UPLOAD_DIR.glob(f"{file_id}.*"))
+            matching = [p for p in UPLOAD_DIR.glob(f"{file_id}.*") if p.is_file() and p.name not in SYSTEM_IGNORED_NAMES]
             if matching:
                 file_path = matching[0]
                 orig_name = file_meta["filename"] if file_meta else file_path.name
 
-        if not file_path or not file_path.exists():
+        if not file_path or not file_path.is_file():
             raise HTTPException(status_code=404, detail="File not found")
 
         content_type, _ = mimetypes.guess_type(orig_name)
@@ -731,10 +775,13 @@ async def preview_file(file_id: str):
 async def get_file_content(file_id: str):
     """Retrieve raw text or code content for in-app code/text preview modal"""
     try:
+        if file_id in SYSTEM_IGNORED_NAMES or file_id.startswith("."):
+            raise HTTPException(status_code=404, detail="File not found")
+
         metadata = load_metadata()
         file_meta = metadata.get(file_id)
-        if not file_meta or not Path(file_meta.get("file_path", "")).exists():
-            matching = list(UPLOAD_DIR.glob(f"{file_id}.*"))
+        if not file_meta or not Path(file_meta.get("file_path", "")).is_file():
+            matching = [p for p in UPLOAD_DIR.glob(f"{file_id}.*") if p.is_file() and p.name not in SYSTEM_IGNORED_NAMES]
             if not matching:
                 raise HTTPException(status_code=404, detail="File not found")
             file_path = matching[0]
@@ -744,6 +791,9 @@ async def get_file_content(file_id: str):
             file_path = Path(file_meta["file_path"])
             filename = file_meta.get("filename", file_path.name)
             category = file_meta.get("file_type_category", get_file_category(filename))
+
+        if not file_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
 
         ext = file_path.suffix.lower().replace(".", "")
         is_binary = category in {"photo", "pdf"} or ext in {"png", "jpg", "jpeg", "webp", "gif", "pdf", "docx"}
@@ -778,13 +828,16 @@ async def get_file_content(file_id: str):
                 except Exception as qe:
                     logger.warning(f"Could not load chunks from Qdrant for preview: {qe}")
 
-            # 2. If still empty, fall back to on-the-fly extraction
+            # 2. If still empty, fall back to fast extraction
             if not visual_metadata:
-                try:
-                    from services.extraction import extract_text_from_upload
-                    visual_metadata = extract_text_from_upload(str(file_path), original_filename=filename)
-                except Exception:
-                    visual_metadata = ""
+                if ext != "pdf":
+                    try:
+                        from services.extraction import extract_text_from_upload
+                        visual_metadata = extract_text_from_upload(str(file_path), original_filename=filename)
+                    except Exception:
+                        visual_metadata = ""
+                else:
+                    visual_metadata = f"[PDF Document: {filename}]"
 
         return JSONResponse({
             "file_id": file_id,
@@ -800,6 +853,7 @@ async def get_file_content(file_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"[FileContent] Error for file_id={file_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/files/{file_id}", tags=["Phase 5: Delete"])
@@ -811,6 +865,9 @@ async def delete_file(file_id: str):
     3. Delete all vector embeddings from Qdrant
     """
     try:
+        if file_id in SYSTEM_IGNORED_NAMES or file_id.startswith("."):
+            raise HTTPException(status_code=400, detail="Cannot delete system database or reserved file")
+
         metadata = load_metadata()
         deleted_name = "document"
         
@@ -874,14 +931,22 @@ async def list_uploaded_files():
         folders = load_folders()
         uploaded_files = []
         
-        # Populate from metadata
-        disk_files = {f.stem: f for f in UPLOAD_DIR.glob("*") if f.name not in {"metadata.json", "folders.json"}}
+        # Populate from disk (strictly real files, ignoring system directories like qdrant_db)
+        disk_files = {
+            f.stem: f for f in UPLOAD_DIR.glob("*")
+            if f.is_file() and f.name not in SYSTEM_IGNORED_NAMES and not f.name.startswith(".")
+        }
         
         # Check metadata entries
         for file_id, info in metadata.items():
+            if file_id in SYSTEM_IGNORED_NAMES or file_id.startswith("."):
+                continue
             file_path = Path(info.get("file_path", ""))
-            if file_path.exists() or file_id in disk_files:
-                f_target = file_path if file_path.exists() else disk_files[file_id]
+            if file_path.is_dir() or file_path.name in SYSTEM_IGNORED_NAMES:
+                continue
+
+            if file_path.is_file() or file_id in disk_files:
+                f_target = file_path if file_path.is_file() else disk_files[file_id]
                 filename = info.get("filename", f_target.name)
                 ext = info.get("extension", f_target.suffix.replace(".", "").lower())
                 cat = info.get("file_type_category") or get_file_category(filename)
@@ -898,9 +963,9 @@ async def list_uploaded_files():
                     "folder_path": compute_folder_path(f_folder_id, folders),
                 })
         
-        # Catch any stray files on disk not in metadata
+        # Catch any stray files on disk not in metadata (strictly files only)
         for file_id, f in disk_files.items():
-            if file_id not in metadata:
+            if file_id not in metadata and file_id not in SYSTEM_IGNORED_NAMES:
                 ext = f.suffix.replace(".", "").lower()
                 uploaded_files.append({
                     "file_id": file_id,

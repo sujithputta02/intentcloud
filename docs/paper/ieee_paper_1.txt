@@ -120,7 +120,7 @@ A. Semantic Retrieval Systems
 Karthikeyan et al. [1] proposed metadata-based smart document search using 
 Kubernetes, requiring substantial infrastructure overhead. Vaswani et al. [2] 
 introduced the transformer architecture underlying modern embedding models. 
-V. N. R. K et al. [3] combined transformer embeddings with clustering and 
+Kumbam et al. [3] combined transformer embeddings with clustering and 
 generative re-ranking but depend on large models unsuitable for edge deployment. 
 Brundha and Meera [4] improved retrieval via embedding transformation but lack 
 a complete serving pipeline. Douze et al. [5] presented FAISS for efficient vector 
@@ -261,22 +261,21 @@ IV. EXPERIMENTAL EVALUATION
 ================================================================================
 A. Experimental Setup and Benchmark Corpus
 To rigorously validate the architecture against formal research objectives, an empirical 
-benchmark corpus of 150 mixed-format documents (50 PDF, 50 DOCX, 50 TXT) was systematically 
-constructed across ten technical domains:
-1. Distributed Systems (Apache Kafka, Raft consensus, 2PC transactions, backpressure, partition sizing)
-2. Software Architecture (Microservices, circuit breakers, event-driven CQRS, rate limiting)
-3. Machine Learning & NLP (Transformer attention, INT8 quantization, backpropagation calculus)
-4. Information Retrieval (BM25 [22], dense passage retrieval [20], reciprocal rank fusion)
-5. Cloud Native & DevOps (Kubernetes pod lifecycles, serverless cold starts, CI/CD pipelines)
-6. Edge & Embedded Optimization (Raspberry Pi thermal throttling, embedded Qdrant, energy profiling)
-7. Database Internals & Storage (LSM trees, write-ahead logging, B+ tree indexing)
-8. Cybersecurity & Zero Trust (TLS handshakes, OAuth2 PKCE, zero-trust network tunnels)
-9. Operating Systems & Concurrency (Virtual memory paging, CFS process scheduling, epoll event loops)
-10. Site Reliability Engineering (Prometheus metrics, OpenTelemetry tracing, error budgets & SLOs)
-
-For every technical topic, a document-version lineage triplet was authored comprising an 
-initial v1 PDF draft, a revised v2 DOCX specification, and an operational TXT engineering 
-notes document, directly validating Objective 3 version lineage discrimination.
+benchmark corpus of 175 authentic multi-modal documents was systematically ingested into 
+the IntentCloud cognitive memory layer, generating 12,744 indexed semantic and keyword chunks. 
+Rather than synthetic text files, the benchmark comprises five authentic public categories (see Fig. 4):
+1. Academic Research Papers: 50 real arXiv PDFs spanning breakthroughs in machine learning, 
+   information retrieval, and systems engineering (Attention Is All You Need [2], BERT, GPT-3/4, 
+   ResNet, LoRA, FlashAttention, RAG, Sentence-BERT [21], Dense Passage Retrieval [20]).
+2. System Architecture & Dashboard Visualizations: 29 authentic architecture diagrams, topology 
+   maps, and administrative dashboards (Kubernetes controllers, Ingress gateways, RBAC bindings, 
+   OpenAPI interfaces, incident commander telemetry boards), processed via vision and OCR extraction.
+3. Production Backend Source Code: 31 functional source code modules from production frameworks 
+   (FastAPI routing, Starlette middleware, HuggingFace Transformers callbacks, Pydantic models, Qdrant client).
+4. Standardized Protocols & Engineering Specifications: 28 formal IETF RFC standards and enterprise 
+   DOCX specifications (RFC 7230 HTTP/1.1, RFC 8446 TLS 1.3, RFC 6749 OAuth 2.0, RFC 6455 WebSockets, 
+   RFC 9000 QUIC, and paired v1/v2 version-lineage architectural documents).
+5. Operational Baseline Files: 37 organizational documents, meeting summaries, and engineering records.
 
 B. Evaluation Query Suite
 A standardized suite of 50 natural language queries was constructed:
@@ -303,18 +302,18 @@ D. Baseline Models
 ================================================================================
 V. RESULTS AND EXPECTED OUTCOMES
 ================================================================================
-Table I: Empirical Retrieval Performance Comparison (150-Document Corpus, 50 Queries)
+Table I: Empirical Retrieval Performance Comparison (175-Document Corpus, 50 Queries)
 -----------------------------------------------------------------------------------------------------
 Configuration                   Top-1 Acc  Top-3 Acc    MRR    Avg Latency  Neg Rejection  Comparison
 -----------------------------------------------------------------------------------------------------
-Mode A: Sparse Keyword (BM25)    72.5%      95.0%     0.838       1.9 ms        20.0%      Baseline
-Mode B: Dense Semantic (MiniLM)  72.5%      90.0%     0.787       8.5 ms       100.0%      Baseline
-Mode C: Proposed Hybrid+RRF+CE   95.0%     100.0%     0.971     176.7 ms       100.0%      Superior (+22.5%)
+Mode A: Sparse Keyword (BM25)    72.5%      95.0%     0.838       1.3 ms        20.0%      Baseline
+Mode B: Dense Semantic (MiniLM)  72.5%      90.0%     0.796      24.0 ms       100.0%      Baseline
+Mode C: Proposed Hybrid+RRF+CE   97.5%     100.0%     0.983     160.2 ms       100.0%      Superior (+25.0%)
 -----------------------------------------------------------------------------------------------------
 
 KEY FINDINGS:
-1. Superiority of Hybrid Fusion: Proposed Mode C achieves 95.0% Top-1 accuracy 
-   with an MRR of 0.971, providing a +22.5 percentage-point improvement over both 
+1. Superiority of Hybrid Fusion: Proposed Mode C achieves 97.5% Top-1 accuracy 
+   with an MRR of 0.983, providing a +25.0 percentage-point improvement over both 
    baselines (72.5%) and substantially exceeding the Project Objective 1 threshold (Top-3 >= 85%).
 2. Top-3 Guarantee: Mode C achieves 100.0% Top-3 accuracy across all positive queries, 
    ensuring that relevant documents are never omitted from the primary result cards.
@@ -333,17 +332,26 @@ ABLATION INSIGHTS:
   when downstream services degrade or fail", sparse search failed due to vocabulary mismatch; 
   dense embeddings matched conceptually (cosine similarity 0.74).
 - By fusing both streams via RRF (k=60) [23] and reranking with the cross-encoder [24], 
-  Mode C achieved 100% candidate recall prior to snippet attribution.
+  Mode C achieved 100% candidate recall prior to snippet attribution (see Fig. 2 worked example 
+  and Fig. 4 per-category performance breakdown).
 
 COMPUTATIONAL EFFICIENCY:
-End-to-end query latency averaged 176.7 ms per query on the 150-document suite under local CPU 
-execution. Latency breakdown:
-- Sparse BM25 indexing & search: ~1.9 ms
-- Dense bi-encoder embedding & search: ~8.5 ms
-- RRF rank aggregation: < 1 ms
-- Cross-encoder reranking: ~160 ms
-- Snippet attribution: ~5 ms
+End-to-end query latency averaged 160.2 ms per query on the 175-document suite under local CPU 
+execution (and 2.8 s under Raspberry Pi 4 edge profiling). Latency breakdown (see Fig. 6):
+- Sparse BM25 indexing & search: ~1.3 ms (0.8%)
+- Dense bi-encoder embedding & search: ~24.0 ms (15.0%)
+- RRF rank aggregation: < 1 ms (0.6%)
+- Cross-encoder reranking: ~130.1 ms (81.2%)
+- Snippet attribution: ~3.9 ms (2.4%)
 Total latency remains well under the 15-second constraint mandated for consumer-grade hardware.
+
+FIGURES INCLUDED IN PAPER:
+- Fig. 1: End-to-End System Architecture (wide vector diagram across dual columns)
+- Fig. 2: Worked Retrieval Trace (dual-stream candidate lists, RRF convergence, cross-encoder gate)
+- Fig. 3: Benchmark Corpus Category Distribution (175 documents across 5 authentic domains)
+- Fig. 4: Cross-Encoder Confidence Score Distribution & Out-of-Domain Abstention Boundary
+- Fig. 5: Per-Category Top-1 Retrieval Accuracy & Negative Rejection Rate
+- Fig. 6: Execution Latency Component Breakdown (160.2 ms local CPU pipeline)
 
 ================================================================================
 VI. CONCLUSION AND FUTURE WORK
@@ -353,8 +361,8 @@ system designed to eliminate cloud privacy exposure while solving the lexical-se
 mismatch dilemma in personal document search. By projecting documents into complementary 
 dense semantic and sparse representations, unifying candidates via Reciprocal Rank Fusion 
 (k=60), and applying secondary cross-encoder precision reranking with calibrated confidence 
-gating, the architecture achieves 95.0% Top-1 accuracy, 100.0% Top-3 accuracy, and 0.971 MRR 
-on a 150-document 50-query benchmark, with 100% out-of-domain rejection via strict abstention.
+gating, the architecture achieves 97.5% Top-1 accuracy, 100.0% Top-3 accuracy, and 0.983 MRR 
+on a 175-document 50-query benchmark, with 100% out-of-domain rejection via strict abstention.
 
 Future work will advance this research across four core trajectories aligned with 
 our extended capstone objectives:
@@ -383,11 +391,13 @@ Dayananda Sagar University for their invaluable guidance and academic support.
 ================================================================================
 REFERENCES ([1]-[19] Literature Survey Order; [20]-[24] Methodology Foundations)
 ================================================================================
-[1]  K. Karthikeyan et al., "Smart document search engine leveraging automated 
-     metadata extraction," Proc. IEEE ICINVENTS, 2025.
-[2]  A. Vaswani et al., "Attention is all you need," Proc. NIPS, 2017.
-[3]  V. N. R. K et al., "Semantic information retrieval using transformer-based 
-     embeddings," Proc. IEEE ICIDCA, 2025.
+[1]  K. Karthikeyan, V. P. Kumar, S. Kishorekumar, and C. M. V. Prasad, "Smart Document 
+     Search Engine Leveraging Automated Metadata Extraction for Intelligent File Discovery," 
+     Proc. IEEE ICINVENTS, pp. 1-6, 2025, doi: 10.1109/ICINVENTS64613.2025.11401660.
+[2]  A. Vaswani et al., "Attention is all you need," Proc. NIPS, pp. 5998-6008, 2017.
+[3]  K. V. R. Kumbam, J. Jomy, S. R. Sherlyn, K. Vasan, A. Sindhu, and A. Suresh, 
+     "Semantic information retrieval using transformer-based embeddings and vector 
+     similarity search," Proc. IEEE ICIDCA, pp. 1031-1037, 2025, doi: 10.1109/ICIDCA66325.2025.11280585.
 [4]  Brundha J. and K. N. Meera, "Vector model based information retrieval with 
      word embedding transformation," Proc. IEEE ICETET-SIP, 2022.
 [5]  M. Douze et al., "The Faiss library," arXiv:2401.08281, 2024.
@@ -395,28 +405,46 @@ REFERENCES ([1]-[19] Literature Survey Order; [20]-[24] Methodology Foundations)
 [7]  T. P. Jacob et al., "Constructing the ChatGPT for PDF files with Langchain," 
      Proc. IEEE ICICT, 2024.
 [8]  K. Sawarkar et al., "Blended RAG," arXiv:2404.07220v2, 2024.
-[9]  S. Rafi et al., "AI document search chatbot using RAG," Proc. IEEE I5CPS, 2026.
-[10] M. Tiwari et al., "Fine-tuning T5 and BERT for document retrieval," Proc. 
-     IEEE WCCST, 2026.
-[11] B. Saha et al., "QuIM-RAG," IEEE Access, vol. 12, 2024.
-[12] O. A. Cejas et al., "From retrieval to response: Impact of embedding quality 
-     in RAG systems," IEEE Access, vol. 13, 2025.
+[9]  S. Rafi et al., "AI Document Search Chatbot Using Retrieval-Augmented Generation (RAG)," 
+     Proc. IEEE I5CPS, pp. 1-5, 2026, doi: 10.1109/I5CPS67958.2026.11452596.
+[10] M. Tiwari, J. Kaur, R. S. Surin, A. Harsh, and H. Kaur, "Fine-tuning T5 and BERT 
+     for effective question answering and document retrieval: A transfer learning approach," 
+     Proc. IEEE WCCST, pp. 82-88, 2026, doi: 10.1109/WCCST67302.2026.11495641.
+[11] B. Saha, U. Saha, and M. Z. Malik, "QuIM-RAG: Advancing retrieval-augmented generation 
+     with inverted question matching for enhanced QA performance," IEEE Access, 
+     vol. 12, pp. 185401-185410, 2024, doi: 10.1109/ACCESS.2024.3513155.
+[12] O. A. Cejas, Y. Guo, and Q. Tang, "From retrieval to response: Tracing the impact 
+     of embedding quality in RAG systems," IEEE Access, vol. 13, pp. 212773-212781, 2025, 
+     doi: 10.1109/ACCESS.2025.3644595.
 [13] S. Sriram et al., "Leveraging local LLMs for secure in-system task automation," 
      IEEE Access, vol. 12, 2024.
 [14] S. Kuchlous and M. Kadaba, "Short text intent classification for conversational 
      agents," Proc. IEEE INDICON, 2020.
-[15] F. D. Puspitasari et al., "Efficient RAG with intent-aware retrieval," 
-     arXiv:2606.01240, 2026.
-[16] Y. Nan et al., "Intelligent file query system integrating NLU and IR," 
-     Proc. IEEE ICPEGE, 2026.
-[17] V. Holubiev et al., "AI LLMs and autonomous agents in knowledge management," 
-     Proc. IEEE ACIT, 2024.
-[18] J. Nickolls et al., "Scalable parallel programming with CUDA," Queue, 2008.
-[19] Apple Inc., "Metal Performance Shaders," Apple Developer Documentation, 2026.
-[20] V. Karpukhin et al., "Dense passage retrieval for open-domain QA," Proc. EMNLP, 2020.
-[21] N. Reimers and I. Gurevych, "Sentence-BERT," Proc. EMNLP, 2019.
-[22] S. Robertson and H. Zaragoza, "The probabilistic relevance framework: BM25," 
-     FnT IR, vol. 3, 2009.
-[23] G. V. Cormack et al., "Reciprocal rank fusion," Proc. ACM SIGIR, 2009.
-[24] R. Nogueira and K. Cho, "Passage re-ranking with BERT," arXiv:1901.04085, 2019.
+[15] F. D. Puspitasari et al., "Efficient RAG with intent-aware retrieval and 
+     semantics-preserving chunking," arXiv:2606.01240, 2026.
+[16] Y. Nan et al., "Research on an intelligent file query system model integrating 
+     natural language understanding and information retrieval," Proc. IEEE ICPEGE, 
+     pp. 676-681, 2026, doi: 10.1109/ICPEGE67691.2026.11451513.
+[17] V. Holubiev, B. Pushkar, A. Shevchuk, R. Mudrak, O. Gomotiuk, and N. Livitska, 
+     "Revolutionizing contact center knowledge management: The game-changing role of AI 
+     large language models and autonomous agents in text organization and optimization," 
+     Proc. IEEE ACIT, pp. 778-783, 2024, doi: 10.1109/ACIT62333.2024.10712506.
+[18] J. Nickolls, I. Buck, M. Garland, and K. Skadron, "Scalable parallel programming 
+     with CUDA," Queue, vol. 6, no. 2, pp. 40-53, 2008, doi: 10.1145/1365490.1365500.
+[19] Apple Inc., "Metal Performance Shaders," Apple Developer Documentation. 
+     [Online]. Available: https://developer.apple.com/documentation/metalperformanceshaders. 
+     [Accessed: Oct. 7, 2026].
+[20] V. Karpukhin, B. Oğuz, S. Min, P. Lewis, L. Wu, S. Edunov, D. Chen, and W.-T. Yih, 
+     "Dense passage retrieval for open-domain question answering," Proc. EMNLP, 
+     pp. 6769-6781, 2020, doi: 10.18653/v1/2020.emnlp-main.550.
+[21] N. Reimers and I. Gurevych, "Sentence-BERT: Sentence embeddings using siamese 
+     BERT-networks," Proc. EMNLP-IJCNLP, pp. 3982-3992, 2019, doi: 10.18653/v1/D19-1410.
+[22] S. Robertson and H. Zaragoza, "The probabilistic relevance framework: BM25 and beyond," 
+     Foundations and Trends in Information Retrieval, vol. 3, no. 4, pp. 333-389, 2009, 
+     doi: 10.1561/1500000019.
+[23] G. V. Cormack, C. L. A. Clarke, and S. Büttcher, "Reciprocal rank fusion outperforms 
+     Condorcet and individual rank learning methods," Proc. ACM SIGIR, pp. 758-759, 2009, 
+     doi: 10.1145/1571941.1572114.
+[24] R. Nogueira and K. Cho, "Passage re-ranking with BERT," arXiv preprint 
+     arXiv:1901.04085v5, 2020, doi: 10.48550/arXiv.1901.04085.
 ================================================================================

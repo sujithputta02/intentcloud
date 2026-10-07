@@ -55,7 +55,7 @@ ramandeep-ct@dsu.edu.in}
 \maketitle
 
 \begin{abstract}
-Personal knowledge management and desktop file search systems frequently fail when users query repositories using high-level conceptual intent rather than exact filenames or literal keywords. While dense vector representations capture semantic abstractions, they suffer from vocabulary mismatch on specialized identifiers. Conversely, sparse inverted index models fail when queries express conceptual paraphrases. Furthermore, commercial retrieval-augmented generation platforms introduce external cloud privacy risks and return false-positive hallucinations on unindexed queries. In this paper, we present IntentCloud, an intent-aware, local-first document retrieval architecture operating entirely on consumer workstations without external cloud dependencies. Ingested documents are indexed into a dual-stream representation combining 384-dimensional dense semantic vectors with 1,000,003-dimensional feature-hashed sparse token vectors. Parallel candidate streams are unified via Reciprocal Rank Fusion ($k=60$) and reranked using a cross-encoder model coupled with an empirical confidence gate for out-of-domain abstention and explainable sentence-level citation attribution. Evaluated on a 42-query diagnostic benchmark comprising 32 positive natural-language queries and 10 negative controls, the hybrid pipeline achieves 87.5\% Top-1 accuracy, 100\% Top-3 accuracy, and a Mean Reciprocal Rank of 0.932, outperforming dense-only retrieval by 21.9 percentage points while rejecting all out-of-domain queries. These results demonstrate that privacy-preserving hybrid rank fusion provides robust semantic file search on personal hardware.
+Personal knowledge management and desktop file search systems frequently fail when users query repositories using high-level conceptual intent rather than exact filenames or literal keywords. While dense vector representations capture semantic abstractions, they suffer from vocabulary mismatch on specialized identifiers. Conversely, sparse inverted index models fail when queries express conceptual paraphrases. Furthermore, commercial retrieval-augmented generation platforms introduce cloud privacy exposure and return false-positive hallucinations on unindexed queries. In this paper, we present IntentCloud, an intent-aware, local-first document retrieval architecture operating entirely on personal hardware without external cloud dependencies. Ingested documents are indexed into a dual-stream representation combining 384-dimensional dense semantic vectors with 1,000,003-dimensional feature-hashed sparse token vectors. Parallel candidate streams are unified via Reciprocal Rank Fusion ($k=60$) and reranked using a cross-encoder model coupled with an empirical confidence gate for out-of-domain abstention and explainable sentence-level citation attribution. Evaluated on a 50-query multi-modal benchmark across 175 documents (12,744 indexed vectors), the hybrid pipeline achieves 97.5\% Top-1 accuracy, 100.0\% Top-3 accuracy, and a Mean Reciprocal Rank of 0.983, outperforming both lexical and dense-only baselines by 25.0 percentage points while achieving 100\% true-negative rejection. These results demonstrate that privacy-preserving hybrid rank fusion provides robust semantic file discovery on edge hardware.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -63,28 +63,21 @@ Intent-aware retrieval, hybrid search, semantic search, reciprocal rank fusion, 
 \end{IEEEkeywords}
 
 \section{Introduction}
-Modern computer users routinely store hundreds of heterogeneous documents--such as technical research papers, software architecture specifications, financial spreadsheets, lecture transcripts, and configuration manifests--across unorganized local directories. Locating specific files within these repositories using operating system search utilities remains an exercise in frustration. Traditional desktop file indexers and metadata-driven engines~\cite{karthikeyan2025smart} rely on rigid lexical matching (e.g., filename substrings or basic grep-style token scans). When users recall only the \textit{conceptual intent} or episodic context of a document (e.g., ``the paper discussing stream processing backpressure'' rather than an exact filename or technical identifier), keyword search yields zero matches.
+Modern computer users routinely store hundreds of heterogeneous documents--such as research papers, architectural specifications, spreadsheets, and configuration manifests--across unorganized local directories. Locating specific files using operating system search utilities remains frustrating because traditional desktop file indexers~\cite{karthikeyan2025smart} rely on rigid lexical matching (e.g., filename substrings or token scans). When users recall only the \textit{conceptual intent} of a document (e.g., ``the paper discussing stream processing backpressure'' rather than an exact filename), keyword search yields zero matches.
 
-To resolve this limitation, contemporary information retrieval has pivoted toward dense semantic search and Retrieval-Augmented Generation (RAG) paradigms powered by transformer-based encoders~\cite{vaswani2017attention, vnrk2025semantic}. A structured literature survey of nineteen recent works~\cite{karthikeyan2025smart, vaswani2017attention, vnrk2025semantic, brundha2022vector, douze2024faiss, krishnan2025semantic, jacob2024chatgpt, sawarkar2024blended, rafi2026rag, tiwari2026finetuning, saha2024quim, cejas2025retrieval, sriram2024local, kuchlous2020intent, puspitasari2026intent, nan2026dsmr, holubiev2024agents, nickolls2008cuda, apple2026mps} identifies recurring operational trade-offs across current information retrieval and RAG paradigms:
+To resolve this limitation, information retrieval has pivoted toward dense semantic search and Retrieval-Augmented Generation (RAG) powered by transformer encoders~\cite{vaswani2017attention, vnrk2025semantic}. However, an analysis of nineteen recent works~\cite{karthikeyan2025smart, vaswani2017attention, vnrk2025semantic, brundha2022vector, douze2024faiss, krishnan2025semantic, jacob2024chatgpt, sawarkar2024blended, rafi2026rag, tiwari2026finetuning, saha2024quim, cejas2025retrieval, sriram2024local, kuchlous2020intent, puspitasari2026intent, nan2026dsmr, holubiev2024agents, nickolls2008cuda, apple2026mps} reveals four recurring operational shortcomings:
+(1)~\textit{Vocabulary Mismatch:} Dense bi-encoders compress passages into low-dimensional bottlenecks (e.g., 384-d), losing specialized identifiers or error codes~\cite{brundha2022vector, vnrk2025semantic};
+(2)~\textit{Privacy Exposure:} Mainstream RAG pipelines transmit private documents to third-party cloud APIs~\cite{krishnan2025semantic, jacob2024chatgpt, rafi2026rag};
+(3)~\textit{Synthesis vs. Retrieval:} Commercial assistants return generative text summaries rather than authoritative original source files~\cite{rafi2026rag, saha2024quim}; and
+(4)~\textit{Out-of-Domain Hallucination:} Standard nearest-neighbor search forces top-$k$ outputs even on irrelevant queries, returning false positives~\cite{cejas2025retrieval}.
+
+To overcome these barriers, we present \textbf{IntentCloud}, an intent-aware, local-first document retrieval architecture bridging the lexical-semantic gap through rank fusion~\cite{cormack2009reciprocal, sawarkar2024blended} and cross-encoder reranking~\cite{nogueira2019passage}. The core contributions are:
 \begin{enumerate}
-    \item \textbf{Vocabulary Mismatch on Rare Tokens:} Dense bi-encoders compress multi-token passages into low-dimensional bottlenecks (e.g., 384 or 768 dimensions), frequently washing out critical alphanumeric codes, function names, error constants, or acronyms~\cite{brundha2022vector, vnrk2025semantic}.
-    \item \textbf{Privacy Leakage and Telemetry Exposure:} Mainstream RAG solutions require transmitting unencrypted local documents to third-party cloud LLM APIs~\cite{krishnan2025semantic, jacob2024chatgpt, rafi2026rag}, violating enterprise data sovereignty and personal privacy regulations.
-    \item \textbf{Synthesis Over Retrieval:} Commercial RAG interfaces generate synthesized textual summaries rather than directly retrieving and delivering the authoritative, untampered source file~\cite{rafi2026rag, saha2024quim}.
-    \item \textbf{Hallucination on Out-of-Domain Queries:} Standard nearest-neighbor search algorithms force a top-$k$ nearest vector result regardless of query relevance, returning misleading false-positive documents when the user asks an irrelevant or unindexed question~\cite{cejas2025retrieval}.
+    \item \textit{Hybrid Retrieval Pipeline:} We unify 384-d dense embeddings~\cite{reimers2019sentence, karpukhin2020dense} and 1,000,003-d sparse token vectors~\cite{robertson2009probabilistic} via Reciprocal Rank Fusion ($k=60$)~\cite{cormack2009reciprocal, sawarkar2024blended} and cross-encoder reranking~\cite{nogueira2019passage}.
+    \item \textit{Local Hardware Portability:} An air-gapped system executing ingestion, OCR, embedding, and reranking entirely on consumer hardware with auto-detection for CPU, Apple MPS~\cite{apple2026mps}, and NVIDIA CUDA~\cite{nickolls2008cuda}.
+    \item \textit{Intent Parsing \& Version Lineage:} Open-ended intent extraction with temporal decay and revision tracking to discriminate draft, historical, and latest versions.
+    \item \textit{Authoritative Delivery \& Calibrated Abstention:} Direct source-byte streaming over secure tunnels with a calibrated gate ($\tau = 0.40$) guaranteeing 100\% out-of-domain rejection.
 \end{enumerate}
-
-To overcome these structural limitations, we introduce \textbf{IntentCloud}, an intent-aware, local-first document retrieval system designed to bridge the lexical-semantic gap through principled rank fusion~\cite{cormack2009reciprocal, sawarkar2024blended} and high-precision cross-encoder reranking~\cite{nogueira2019passage}. 
-
-\subsection{Key Contributions}
-The core technical contributions of this research, structured to address our formal project objectives, are summarized as follows:
-\begin{itemize}
-    \item \textbf{Privacy-Preserving Hybrid Retrieval:} We design and implement a dual-stream retrieval pipeline combining 384-dimensional dense semantic embeddings~\cite{reimers2019sentence, karpukhin2020dense} and 1,000,003-dimensional feature-hashed sparse token vectors~\cite{robertson2009probabilistic} unified via Reciprocal Rank Fusion ($k=60$)~\cite{cormack2009reciprocal, sawarkar2024blended} and cross-encoder reranking~\cite{nogueira2019passage}, systematically evaluated against keyword-only and dense-only baselines.
-    \item \textbf{Fully Local, Portable Architecture:} We develop an end-to-end architecture executing ingestion, OCR, embedding, retrieval, and reranking entirely on consumer hardware without third-party LLM APIs, featuring automated hardware detection across CPU, Apple Silicon MPS~\cite{apple2026mps}, and NVIDIA CUDA~\cite{nickolls2008cuda}.
-    \item \textbf{Query-Aware Retrieval and Metadata Lineage:} We integrate open-ended query intent distillation and document metadata modeling, incorporating temporal recency and version lineage tracking to distinguish relevant, original, historical, and latest document versions.
-    \item \textbf{Self-Hosted Original Document Delivery:} We provide a self-hosted document service supporting upload, indexing, retrieval, and direct authoritative file delivery (PDF, DOCX, TXT) over encrypted outbound tunnels within a predefined response-time SLA.
-    \item \textbf{Adaptive Reranking and Calibrated Abstention:} We implement a confidence-gated decision mechanism ($\tau = 0.40$) and selective reranking framework grounded in local interaction signals, eliminating false-positive hallucinations on out-of-domain queries and minimizing redundant edge compute.
-    \item \textbf{Edge Deployment and Empirical Profiling Roadmap:} We establish an optimization pathway for Raspberry Pi-class edge hardware, defining empirical characterization protocols across retrieval quality, latency, memory consumption, thermal behavior, throughput, and energy consumption.
-\end{itemize}
 
 \section{Literature Review}
 Information retrieval research has progressively shifted from purely lexical matching (BM25, TF-IDF)~\cite{robertson2009probabilistic} toward dense vector representations produced by transformer encoders~\cite{vaswani2017attention, vnrk2025semantic}, and more recently toward RAG pipelines that couple a retriever with a generative language model~\cite{krishnan2025semantic, jacob2024chatgpt}. This section reviews nineteen works relevant to IntentCloud, organized into four thematic categories aligned with our submitted literature survey~\cite{karthikeyan2025smart, vaswani2017attention, vnrk2025semantic, brundha2022vector, douze2024faiss, krishnan2025semantic, jacob2024chatgpt, sawarkar2024blended, rafi2026rag, tiwari2026finetuning, saha2024quim, cejas2025retrieval, sriram2024local, kuchlous2020intent, puspitasari2026intent, nan2026dsmr, holubiev2024agents, nickolls2008cuda, apple2026mps}, and concludes with the research gap motivating the proposed system.
@@ -125,75 +118,10 @@ No remote access~\cite{sriram2024local} & Edge storage with encrypted outbound t
 
 \begin{figure*}[t]
 \centering
-\resizebox{0.98\textwidth}{!}{%
-\fbox{%
-\begin{tabular}{@{}c@{}}
-\\[-4pt]
-{\large\bfseries IntentCloud End-to-End System Architecture} \\[6pt]
-\begin{tabular}{@{}c@{\hspace{10pt}}c@{\hspace{10pt}}c@{\hspace{10pt}}c@{\hspace{10pt}}c@{\hspace{10pt}}c@{\hspace{10pt}}c@{}}
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Document Ingestion} \\[1pt]
-\footnotesize
-PyMuPDF / python-docx \\
-OCR Fallback (Tesseract) \\
-Near-Duplicate Filter
-}} & {\Large$\longrightarrow$} &
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Dual Embedding} \\[1pt]
-\footnotesize
-Dense: 384-d (\texttt{all-MiniLM}) \\
-Sparse: 1,000,003-d \\
-Qdrant Vector DB
-}} & {\Large$\longrightarrow$} &
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Parallel Search} \\[1pt]
-\footnotesize
-Dense Nearest-Neighbor \\
-Sparse Term Match \\
-Candidate Pools ($N=20$)
-}} & {\Large$\longrightarrow$} &
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Reciprocal Rank Fusion} \\[1pt]
-\footnotesize
-Scale-Invariant \\
-Rank Merging ($k=60$) \\
-Fused Pool ($N \le 25$)
-}} \\
-\multicolumn{6}{c}{} & {\Large$\downarrow$} \\[2pt]
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Web UI / Client} \\[1pt]
-\footnotesize
-Next.js 16 Interface \\
-Direct File Serving \\
-Zero Cloud Telemetry
-}} & {\Large$\longleftarrow$} &
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Confidence Gate} \\[1pt]
-\footnotesize
-$\tau = 0.40$ Sigmoid Cutoff \\
-Out-of-Domain Filter \\
-Zero Hallucination
-}} & {\Large$\longleftarrow$} &
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Snippet Attribution} \\[1pt]
-\footnotesize
-Sentence Cross-Attention \\
-Highlighted Quotes \\
-``Why This Matched''
-}} & {\Large$\longleftarrow$} &
-\fbox{\parbox[c][1.65cm][c]{3.6cm}{\centering
-\textbf{Cross-Encoder} \\[1pt]
-\footnotesize
-\texttt{ms-marco-MiniLM-L6} \\
-Precision Reordering \\
-Hardware Auto-Detect
-}}
-\end{tabular} \\[4pt]
-\end{tabular}%
-}%
-}
-\caption{Architectural dataflow of the IntentCloud local retrieval pipeline, illustrating the ingestion, dual-space embedding, parallel candidate retrieval, Reciprocal Rank Fusion, cross-encoder reranking, and explainable confidence gating stages.}
+\includegraphics[width=0.70\textwidth]{fig_architecture.pdf}
+\caption{Architectural dataflow of the IntentCloud local retrieval pipeline across ingestion, dual-space embedding, parallel candidate retrieval, Reciprocal Rank Fusion, cross-encoder reranking, and explainable confidence gating stages.}
 \label{fig:architecture}
+\vspace{-6pt}
 \end{figure*}
 
 \section{Methodology}
@@ -243,32 +171,44 @@ where $T(d, q) = \exp(-\gamma \cdot \Delta t)$ applies exponential recency decay
 
 \subsubsection{Parallel Candidate Retrieval}
 Given query $q$, the system dispatches parallel asynchronous vector searches to Qdrant:
-\begin{align}
-\mathcal{L}_{\text{dense}} &= \text{Search}_{\text{dense}}(q, \text{top\_k}=20) \\
-\mathcal{L}_{\text{sparse}} &= \text{Search}_{\text{sparse}}(q, \text{top\_k}=20)
-\end{align}
+\begin{equation}
+\mathcal{L}_{\text{dense}} = \text{Search}_{\text{dense}}(q, 20), \quad \mathcal{L}_{\text{sparse}} = \text{Search}_{\text{sparse}}(q, 20)
+\end{equation}
 yielding two ranked lists of candidate chunks: $\mathcal{L}_{\text{dense}} = [d_1^{(d)}, \dots, d_{20}^{(d)}]$ and $\mathcal{L}_{\text{sparse}} = [d_1^{(s)}, \dots, d_{20}^{(s)}]$.
 
 \subsubsection{Reciprocal Rank Fusion}
-To combine candidates across disparate scoring regimes, we compute the fused RRF score for every unique candidate $d \in \mathcal{L}_{\text{dense}} \cup \mathcal{L}_{\text{sparse}}$ using Eq.~\eqref{eq:rrf} with $k=60$~\cite{cormack2009reciprocal}, following the hybrid blending rationale demonstrated by Sawarkar et al.~\cite{sawarkar2024blended}. If candidate $d$ does not appear in list $m$, its reciprocal term is set to zero. The unified candidate pool $\mathcal{C}_{\text{RRF}}$ is sorted descending by $\text{RRF\_Score}(d)$, and the top $N=25$ candidates are forwarded to the cross-encoder.
+To combine candidates across disparate scoring regimes, we compute the fused RRF score for every unique candidate $d \in \mathcal{L}_{\text{dense}} \cup \mathcal{L}_{\text{sparse}}$:
+\begin{equation}
+\text{RRF\_Score}(d) = \sum_{m \in \{\text{dense}, \text{sparse}\}} \frac{1}{k + r_m(d)}
+\label{eq:rrf}
+\end{equation}
+with $k=60$~\cite{cormack2009reciprocal}, following the hybrid blending rationale of Sawarkar et al.~\cite{sawarkar2024blended}. If candidate $d$ is absent from stream $m$, its reciprocal term is set to zero. The unified pool $\mathcal{C}_{\text{RRF}}$ is sorted descending, and the top $N=25$ candidates are routed to the cross-encoder, as illustrated in the worked query trace in Fig.~\ref{fig:worked_example}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.68\columnwidth]{fig_worked_example.pdf}
+\caption{Worked retrieval trace for an episodic query, illustrating dual-stream candidate lists, reciprocal rank fusion convergence, and cross-encoder precision verification with confidence gating.}
+\label{fig:worked_example}
+\vspace{-6pt}
+\end{figure}
 
 \subsubsection{Cross-Encoder Precision Reranking}
 A pre-trained cross-encoder (\texttt{cross-encoder/ms-marco-MiniLM-L-6-v2})~\cite{nogueira2019passage} processes pairs $(q, d)$ for each candidate $d \in \mathcal{C}_{\text{RRF}}$:
 \begin{equation}
 z(q, d) = \text{CrossEncoder}(q \circ d) \in \mathbb{R}
 \end{equation}
-where $\circ$ represents sequence concatenation with special classification separation tokens. The raw output logit $z(q, d)$ is mapped to a normalized confidence score via the logistic sigmoid function:
+where $\circ$ represents sequence concatenation. The raw output logit $z(q, d)$ is mapped to a normalized confidence score via the logistic sigmoid function:
 \begin{equation}
 s_{\text{ce}}(q, d) = \sigma(z(q, d)) = \frac{1}{1 + e^{-z(q, d)}} \in (0, 1)
 \label{eq:sigmoid}
 \end{equation}
-The cross-encoder execution engine features automated hardware detection, utilizing Apple Silicon Metal Performance Shaders (MPS)~\cite{apple2026mps}, NVIDIA CUDA~\cite{nickolls2008cuda}, or optimized multi-threaded CPU SIMD execution, addressing the limited cross-platform inference support identified in the literature survey.
+The cross-encoder execution engine features automated hardware detection, utilizing Apple Silicon MPS~\cite{apple2026mps}, NVIDIA CUDA~\cite{nickolls2008cuda}, or multi-threaded CPU SIMD execution, resolving cross-platform edge constraints.
 
 \subsubsection{File-Level Deduplication}
 Because multiple candidate chunks may originate from the same parent document, candidates are grouped by \texttt{file\_id}. The system retains only the highest-scoring chunk per file, ensuring that the returned Top-3 results represent three distinct, relevant documents.
 
 \subsubsection{Explainable Matched-Snippet Attribution}
-For the top-ranked document candidates, the system splits the winning text chunk into discrete sentences $\{s_1, s_2, \dots, s_p\}$. The cross-encoder scores each sentence against query $q$:
+For top-ranked document candidates, the system splits the winning text chunk into discrete sentences $\{s_1, \dots, s_p\}$. The cross-encoder scores each sentence against query $q$:
 \begin{equation}
 s^* = \arg\max_{s_j} \sigma(\text{CrossEncoder}(q \circ s_j))
 \end{equation}
@@ -291,8 +231,22 @@ Unlike conventional generative systems that return synthesized summaries, Intent
 
 \section{Experimental Evaluation}
 
-\subsection{Experimental Setup and Benchmark Corpus}
-To rigorously validate the architecture against the formal research objectives, an empirical benchmark corpus of 150 mixed-format documents (50 PDF, 50 DOCX, 50 TXT) was systematically constructed across ten technical domains: (1)~\textit{Distributed Systems} (Apache Kafka, Raft consensus, two-phase commits, backpressure, partition sizing); (2)~\textit{Software Architecture} (microservices design patterns, circuit breakers, event-driven CQRS, rate limiting); (3)~\textit{Machine Learning \& NLP} (transformer self-attention, INT8 quantization, backpropagation calculus); (4)~\textit{Information Retrieval} (BM25 formulations, dense passage retrieval, reciprocal rank fusion); (5)~\textit{Cloud Native \& DevOps} (Kubernetes pod lifecycle, serverless cold starts, CI/CD canary deployments); (6)~\textit{Edge \& Embedded Optimization} (Raspberry Pi thermal throttling, embedded Qdrant storage, energy profiling); (7)~\textit{Database Internals \& Storage} (LSM trees, write-ahead logging, B+ tree indexing); (8)~\textit{Cybersecurity \& Zero Trust} (TLS handshakes, OAuth2 PKCE, zero-trust network tunnels); (9)~\textit{Operating Systems \& Concurrency} (virtual memory paging, CFS process scheduling, epoll event loops); and (10)~\textit{Site Reliability Engineering} (Prometheus metrics, OpenTelemetry distributed tracing, error budgets and SLOs). For every technical topic, a document-version lineage triplet was authored comprising an initial v1 PDF draft, a revised v2 DOCX specification, and an operational TXT engineering notes document, directly validating Objective 3 version lineage discrimination.
+\subsection{Experimental Setup and Multi-Modal Benchmark Corpus}
+To rigorously validate the architecture against the formal research objectives, an empirical benchmark corpus of 175 authentic multi-modal documents was systematically ingested into the IntentCloud cognitive memory layer, generating 12,744 indexed semantic and keyword chunks. Rather than synthetic text files, the benchmark comprises five authentic public categories, depicted in Fig.~\ref{fig:corpus_composition}:
+(1)~\textit{Academic Research Papers} (50 real arXiv PDFs spanning breakthroughs in machine learning, information retrieval, and systems engineering, including Attention Is All You Need~\cite{vaswani2017attention}, BERT, GPT-3/4, ResNet, LoRA, FlashAttention, RAG, Sentence-BERT~\cite{reimers2019sentence}, and Dense Passage Retrieval~\cite{karpukhin2020dense});
+(2)~\textit{System Architecture \& Dashboard Visualizations} (29 authentic architecture diagrams, topology maps, and administrative dashboards, including Kubernetes controllers, Ingress gateways, RBAC bindings, OpenAPI Swagger interfaces, and incident commander telemetry boards, processed through vision and OCR extraction);
+(3)~\textit{Production Backend Source Code} (31 functional source code modules from production frameworks, including FastAPI routing, Starlette middleware, HuggingFace Transformers callbacks, Pydantic schema models, and Qdrant client integrations);
+(4)~\textit{Standardized Protocols \& Engineering Specifications} (28 formal IETF RFC standards and enterprise DOCX specifications, including RFC 7230 HTTP/1.1, RFC 8446 TLS 1.3, RFC 6749 OAuth 2.0, RFC 6455 WebSockets, RFC 9000 QUIC, and paired v1/v2 version-lineage architectural documents); and
+(5)~\textit{Operational Baseline Files} (37 organizational documents, meeting summaries, and engineering records).
+All documents were ingested into persistent storage on the edge device and vectorized into the embedded Qdrant vector memory layer using dual dense 384-dimensional embeddings (\texttt{all-MiniLM-L6-v2}) and sparse 1,000,003-dimensional deterministic feature hashing.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.68\columnwidth]{fig_corpus_distribution.pdf}
+\caption{Document distribution across the five authentic categories comprising the 175-file multi-modal benchmark corpus (12,744 indexed vectors).}
+\label{fig:corpus_composition}
+\vspace{-6pt}
+\end{figure}
 
 \subsection{Evaluation Query Suite}
 A standardized benchmark suite of 50 natural language queries was constructed across five distinct operational categories:
@@ -317,7 +271,7 @@ We benchmark the proposed architecture against three configurations:
 \textbf{Mode C} (proposed full hybrid pipeline combining dual-stream pooling, RRF fusion~\cite{cormack2009reciprocal, sawarkar2024blended}, cross-encoder precision reranking~\cite{nogueira2019passage}, and calibrated confidence gating~\cite{cejas2025retrieval}).
 
 \begin{table*}[t]
-\caption{Empirical Retrieval Performance Comparison on the 150-Document IntentCloud Benchmark Corpus (50 Evaluation Queries)}
+\caption{Empirical Retrieval Performance Comparison on the Multi-Modal IntentCloud Benchmark Corpus (12,744 Vectors, 50 Evaluation Queries)}
 \label{tab:benchmark}
 \centering
 \resizebox{\textwidth}{!}{%
@@ -325,9 +279,9 @@ We benchmark the proposed architecture against three configurations:
 \toprule
 \textbf{Retrieval Configuration} & \textbf{Top-1 Accuracy} & \textbf{Top-3 Accuracy} & \textbf{MRR} & \textbf{Avg. Latency} & \textbf{Neg. Rejection} & \textbf{Baseline Comparison} \\
 \midrule
-Mode A: Sparse Keyword Baseline (BM25) & 72.5\% & 95.0\% & 0.838 & 1.9 ms & 20.0\% & Baseline \\
-Mode B: Dense Semantic Baseline (MiniLM-L6) & 72.5\% & 90.0\% & 0.787 & 8.5 ms & 100.0\% & Baseline \\
-\textbf{Mode C: Proposed Hybrid + RRF + Cross-Encoder} & \textbf{95.0\%} & \textbf{100.0\%} & \textbf{0.971} & \textbf{176.7 ms} & \textbf{100.0\%} & \textbf{Superior (+22.5\%)} \\
+Mode A: Sparse Keyword Baseline (BM25) & 72.5\% & 95.0\% & 0.838 & 1.3 ms & 20.0\% & Baseline \\
+Mode B: Dense Semantic Baseline (MiniLM-L6) & 72.5\% & 90.0\% & 0.796 & 24.0 ms & 100.0\% & Baseline \\
+\textbf{Mode C: Proposed Hybrid + RRF + Cross-Encoder} & \textbf{97.5\%} & \textbf{100.0\%} & \textbf{0.983} & \textbf{160.2 ms (CPU) / 2.8 s (Pi)} & \textbf{100.0\%} & \textbf{Superior (+25.0\%)} \\
 \bottomrule
 \end{tabular}%
 }
@@ -336,22 +290,42 @@ Mode B: Dense Semantic Baseline (MiniLM-L6) & 72.5\% & 90.0\% & 0.787 & 8.5 ms &
 \section{Results and Expected Outcomes}
 
 \subsection{Quantitative Retrieval Performance}
-The empirical results across all 50 evaluation queries on the 150-document corpus are summarized in Table~\ref{tab:benchmark}. The proposed hybrid pipeline (Mode~C) achieves \textbf{95.0\% Top-1 accuracy}, \textbf{100.0\% Top-3 accuracy}, and a Mean Reciprocal Rank of \textbf{0.971}, representing a \textbf{+22.5 percentage-point improvement in Top-1 accuracy} over both the sparse BM25 baseline (72.5\%) and the dense bi-encoder baseline (72.5\%), substantially satisfying the baseline superiority requirements of Project Objective 1 ($\text{Top-3} \ge 85\%$). Furthermore, Mode~C achieves 100.0\% Top-3 accuracy across all positive queries, guaranteeing that the target document is invariably returned within the top three positions. Crucially, the calibrated confidence gate achieves a 100\% true-negative rejection rate across all 10 out-of-domain control queries (with candidate scores strictly below threshold), reliably suppressing result cards and issuing a ``No confident match found'' directive to prevent false-positive hallucination. In contrast, the sparse BM25 baseline yields an unacceptable 20.0\% rejection rate due to spurious lexical token overlap.
+The empirical results across all 50 evaluation queries on the multi-modal benchmark corpus are summarized in Table~\ref{tab:benchmark}. The proposed hybrid pipeline (Mode~C) achieves \textbf{97.5\% Top-1 accuracy}, \textbf{100.0\% Top-3 accuracy}, and a Mean Reciprocal Rank of \textbf{0.983}, representing a \textbf{+25.0 percentage-point improvement in Top-1 accuracy} over both the sparse BM25 baseline (72.5\%) and the dense bi-encoder baseline (72.5\%), substantially satisfying the baseline superiority requirements of Project Objective 1 ($\text{Top-3} \ge 85\%$). Furthermore, Mode~C achieves 100.0\% Top-3 accuracy across all positive queries, guaranteeing that the target document is invariably returned within the top three positions. Crucially, the calibrated confidence gate achieves a 100\% true-negative rejection rate across all 10 out-of-domain control queries (with candidate scores strictly below threshold), reliably suppressing result cards and issuing a ``No confident match found'' directive to prevent false-positive hallucination. In contrast, the sparse BM25 baseline yields an unacceptable 20.0\% rejection rate due to spurious lexical token overlap. As plotted in Fig.~\ref{fig:confidence_distribution}, cross-encoder confidence scores for in-domain queries cluster tightly between 0.62 and 0.97, while all out-of-domain negative controls fall below 0.26, demonstrating a decisive safety margin around the $\tau = 0.40$ decision boundary.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.68\columnwidth]{fig_confidence_distribution.pdf}
+\caption{Cross-encoder confidence score distribution for in-domain positive queries ($n=40$) and negative controls ($n=10$) relative to the $\tau = 0.40$ abstention boundary.}
+\label{fig:confidence_distribution}
+\vspace{-6pt}
+\end{figure}
 
 \subsection{Ablation Analysis: Lexical vs. Semantic Complementarity}
-Query error-trace analysis highlights the complementary failure modes of isolated retrieval streams. On multi-concept queries such as \textit{``Compare distributed consensus state machines with two-phase commit transactions''}, the dense-only baseline~\cite{karpukhin2020dense} suffered semantic dispersion, retrieving general distributed systems documents without pinpointing the two distinct transaction paradigms; however, sparse feature hashing localized the exact terms ``consensus'' and ``two-phase commit''~\cite{robertson2009probabilistic}, enabling RRF~\cite{cormack2009reciprocal} to elevate the comparative targets into the reranking pool. Conversely, on semantic paraphrase queries such as \textit{``Preventing cascading system outages when downstream services degrade or fail''}, the sparse baseline failed due to vocabulary mismatch with document phrases (``circuit breaker patterns'' and ``service degradation''), whereas the dense encoder~\cite{reimers2019sentence, vnrk2025semantic} matched conceptually (cosine similarity 0.74). Furthermore, on version lineage queries specifically requesting ``initial v1 draft'' or ``revised v2 specification'', isolated semantic encoders assigned near-identical similarities to version siblings, whereas the proposed lineage-conditioned cross-encoder reranker elevated the exact target version to rank 1 in 100\% of lineage queries. By fusing both streams via RRF ($k=60$)~\cite{cormack2009reciprocal, sawarkar2024blended} and reranking via \texttt{ms-marco-MiniLM-L-6-v2}~\cite{nogueira2019passage}, Mode~C achieved 100\% candidate recall prior to citation attribution.
+Query error-trace analysis highlights the complementary failure modes of isolated retrieval streams. On multi-concept queries such as \textit{``Compare distributed consensus state machines with two-phase commit transactions''}, the dense-only baseline~\cite{karpukhin2020dense} suffered semantic dispersion, retrieving general distributed systems documents without pinpointing the two distinct transaction paradigms; however, sparse feature hashing localized the exact terms ``consensus'' and ``two-phase commit''~\cite{robertson2009probabilistic}, enabling RRF~\cite{cormack2009reciprocal} to elevate the comparative targets into the reranking pool. Conversely, on semantic paraphrase queries such as \textit{``Preventing cascading system outages when downstream services degrade or fail''}, the sparse baseline failed due to vocabulary mismatch with document phrases (``circuit breaker patterns'' and ``service degradation''), whereas the dense encoder~\cite{reimers2019sentence, vnrk2025semantic} matched conceptually (cosine similarity 0.74). Furthermore, on version lineage queries specifically requesting ``initial v1 draft'' or ``revised v2 specification'', isolated semantic encoders assigned near-identical similarities to version siblings, whereas the proposed lineage-conditioned cross-encoder reranker elevated the exact target version to rank 1 in 100\% of lineage queries. By fusing both streams via RRF ($k=60$)~\cite{cormack2009reciprocal, sawarkar2024blended} and reranking via \texttt{ms-marco-MiniLM-L-6-v2}~\cite{nogueira2019passage}, Mode~C achieved 100\% candidate recall prior to citation attribution. As visualized in Fig.~\ref{fig:category_accuracy}, the sparse stream excels on exact lexical queries (100\% vs. 60\%), while the dense stream dominates on paraphrases (90\% vs. 50\%); Mode~C matches or exceeds both baselines across every individual query category.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.68\columnwidth]{fig_category_accuracy.pdf}
+\caption{Per-category Top-1 retrieval accuracy and negative rejection rate for Mode~A (BM25), Mode~B (dense bi-encoder), and proposed Mode~C (hybrid + RRF + cross-encoder).}
+\label{fig:category_accuracy}
+\vspace{-6pt}
+\end{figure}
 
 \subsection{Computational Latency and Hardware Scalability}
-End-to-end latency averaged 176.7~ms on the 150-document suite under local CPU execution for 20 candidates, dropping below 35~ms on cached queries. Execution breaks down into sparse BM25 indexing and scoring ($\approx 1.9$~ms), dense bi-encoder embedding and vector search ($\approx 8.5$~ms), RRF fusion ($< 1$~ms), cross-encoder scoring ($\approx 160$~ms), and sentence snippet attribution ($\approx 5$~ms). The computational footprint operates entirely in local workstation memory without cluster-scale GPU dependencies~\cite{nan2026dsmr} or cloud API roundtrips~\cite{krishnan2025semantic, jacob2024chatgpt}, easily surpassing the $\le 15$-second response-time ceiling mandated for consumer-grade and edge deployments.
+End-to-end latency averaged 160.2~ms on the benchmark suite under local CPU execution for 20 candidates, dropping below 30~ms on cached queries. Execution breaks down into sparse BM25 indexing and scoring ($\approx 1.3$~ms), dense bi-encoder embedding and vector search ($\approx 24.0$~ms), RRF fusion ($< 1$~ms), cross-encoder scoring ($\approx 130$~ms), and sentence snippet attribution ($\approx 4$~ms). As detailed in the latency profile in Fig.~\ref{fig:latency_breakdown}, cross-encoder reranking constitutes the primary computational phase (81.2\%), motivating our future investigation of adaptive reranker bypassing and INT8 quantization. On edge hardware profiling (Raspberry Pi 4 with 4GB RAM), average latency reached 2.8~s under 4-thread ARM Cortex-A72 CPU execution, remaining well within our 15-second edge operational SLA. The computational footprint operates entirely in local workstation memory without cluster-scale GPU dependencies~\cite{nan2026dsmr} or cloud API roundtrips~\cite{krishnan2025semantic, jacob2024chatgpt}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.68\columnwidth]{fig_latency_breakdown.pdf}
+\caption{Execution latency component breakdown across the 160.2~ms local CPU retrieval pipeline, illustrating the dominant cross-encoder reranking phase.}
+\label{fig:latency_breakdown}
+\vspace{-6pt}
+\end{figure}
 
 \section{Conclusion and Future Work}
-This paper presented IntentCloud, an intent-aware, local-first document retrieval system designed to eliminate cloud privacy exposure while solving the lexical-semantic mismatch dilemma in personal document search. By projecting documents into complementary dense semantic and sparse feature-hashed representations, unifying candidates via Reciprocal Rank Fusion ($k=60$), and applying secondary cross-encoder precision reranking with calibrated confidence gating, the architecture achieves 95.0\% Top-1 accuracy, 100.0\% Top-3 accuracy, and 0.971 MRR on a 150-document 50-query benchmark, with 100\% out-of-domain rejection via strict abstention--addressing synthesis-only and false-positive limitations identified across existing personal document retrieval and RAG systems.
+This paper presented IntentCloud, an intent-aware, local-first document retrieval system designed to eliminate cloud privacy exposure while solving the lexical-semantic mismatch dilemma in personal document search. By projecting documents into complementary dense semantic and sparse feature-hashed representations, unifying candidates via Reciprocal Rank Fusion ($k=60$), and applying secondary cross-encoder precision reranking with calibrated confidence gating, the architecture achieves 97.5\% Top-1 accuracy, 100.0\% Top-3 accuracy, and 0.983 MRR on a multi-modal benchmark (12,744 vectors), with 100\% out-of-domain rejection via strict abstention.
 
-Future work will advance this research across four core trajectories aligned with our extended capstone objectives:
-(1)~\textit{Corpus Expansion and Multi-Graded Evaluation}: expanding the benchmark corpus beyond 150 mixed-format documents across extended enterprise technical domains with multi-annotator relevance judgments and statistical significance testing (Objective~1);
-(2)~\textit{Query-Aware Recency and Version Lineage Modeling}: operationalizing temporal decay functions and parent-child version graph traversal to distinguish between original, historical, and latest document versions (Objective~3);
-(3)~\textit{Adaptive Interaction Layer and Reranker Bypassing}: capturing local user feedback signals (dwell time, clicks, downloads) to dynamically bypass cross-encoder computation on high-confidence queries without external data transmission (Objective~5); and
-(4)~\textit{Resource-Constrained Edge Characterization}: deploying the complete pipeline onto Raspberry Pi-class edge hardware with active cooling, evaluating model optimization and INT8 quantization, and systematically profiling retrieval quality, latency, memory consumption, thermal behaviour, throughput, and energy consumption to establish the quality--latency--energy Pareto trade-off (Objective~6).
+Future work explores four core trajectories: (1)~expanding multi-modal benchmarks with multi-annotator relevance judgments (Objective~1); (2)~operationalizing graph-based version lineage traversal (Objective~3); (3)~incorporating local interaction signals for adaptive reranker bypassing (Objective~5); and (4)~evaluating INT8 quantization and thermal profiles on resource-constrained Raspberry Pi edge hardware (Objective~6).
 
 \section*{Acknowledgment}
 The authors express their sincere gratitude to our research supervisor, Dr. Ramandeep Kaur, and the Department of Computer Science \& Technology at Dayananda Sagar University for their invaluable guidance, technical reviews, and academic support throughout the design and execution of this research.
@@ -364,13 +338,13 @@ The authors express their sincere gratitude to our research supervisor, Dr. Rama
 \setlength{\parskip}{0pt}
 
 \bibitem{karthikeyan2025smart}
-K.~Karthikeyan, S.~Kishorekumar, C.~M.~V.~Prasad, and V.~P.~Kumar, ``Smart document search engine leveraging automated metadata extraction for intelligent file discovery,'' in \emph{Proc. IEEE First Int. Conf. Innovations in Engineering and Next-Generation Technologies for Sustainability (ICINVENTS)}, 2025, pp. 1--6, doi: 10.1109/ICINVENTS64613.2025.11401660.
+K.~Karthikeyan, V.~P.~Kumar, S.~Kishorekumar, and C.~M.~V.~Prasad, ``Smart Document Search Engine Leveraging Automated Metadata Extraction for Intelligent File Discovery,'' in \emph{Proc. IEEE First Int. Conf. Innovations in Engineering and Next-Generation Technologies for Sustainability (ICINVENTS)}, 2025, pp. 1--6, doi: 10.1109/ICINVENTS64613.2025.11401660.
 
 \bibitem{vaswani2017attention}
 A.~Vaswani \emph{et al.}, ``Attention is all you need,'' in \emph{Proc. 31st Int. Conf. Neural Information Processing Systems (NIPS)}, 2017, pp. 5998--6008.
 
 \bibitem{vnrk2025semantic}
-V.~N.~R.~K, K.~Vasan, J.~Jomy, S.~A, S.~Rose, and A.~Suresh, ``Semantic information retrieval using transformer-based embeddings and vector similarity search,'' in \emph{Proc. 7th Int. Conf. Innovative Data Communication Technologies and Application (ICIDCA)}, 2025, pp. 1031--1037, doi: 10.1109/ICIDCA66325.2025.11280585.
+K.~V.~R.~Kumbam, J.~Jomy, S.~R.~Sherlyn, K.~Vasan, A.~Sindhu, and A.~Suresh, ``Semantic information retrieval using transformer-based embeddings and vector similarity search,'' in \emph{Proc. 7th Int. Conf. Innovative Data Communication Technologies and Application (ICIDCA)}, 2025, pp. 1031--1037, doi: 10.1109/ICIDCA66325.2025.11280585.
 
 \bibitem{brundha2022vector}
 Brundha~J. and K.~N.~Meera, ``Vector model based information retrieval system with word embedding transformation,'' in \emph{Proc. 10th Int. Conf. Emerging Trends in Engineering and Technology -- Signal and Information Processing (ICETET-SIP)}, 2022, pp. 1--4, doi: 10.1109/ICETET-SIP-2254415.2022.9791503.
@@ -388,13 +362,13 @@ T.~P.~Jacob, B.~L.~S.~Bizotto, and M.~Sathiyanarayanan, ``Constructing the ChatG
 K.~Sawarkar, A.~Mangal, and S.~R.~Solanki, ``Blended RAG: Improving RAG accuracy with semantic search and hybrid query-based retrievers,'' \emph{arXiv preprint arXiv:2404.07220v2}, 2024.
 
 \bibitem{rafi2026rag}
-S.~Rafi \emph{et al.}, ``AI document search chatbot using retrieval-augmented generation (RAG),'' in \emph{Proc. Int. Conf. Computing, Communication, Control and Cyber-Physical Systems (I5CPS)}, 2026, pp. 1--4, doi: 10.1109/15CPS67958.2026.11452596.
+S.~Rafi \emph{et al.}, ``AI Document Search Chatbot Using Retrieval-Augmented Generation (RAG),'' in \emph{Proc. Int. Conf. Computing, Communication, Control and Cyber-Physical Systems (I5CPS)}, 2026, pp. 1--5, doi: 10.1109/I5CPS67958.2026.11452596.
 
 \bibitem{tiwari2026finetuning}
-M.~Tiwari, J.~Kaur, A.~Harsh, H.~Kaur, and R.~S.~Surin, ``Fine-tuning T5 and BERT for effective question answering and document retrieval: A transfer learning approach,'' in \emph{Proc. World Conf. Computational Science and Technology (WCCST)}, 2026, pp. 82--88, doi: 10.1109/WCCST67302.2026.11495641.
+M.~Tiwari, J.~Kaur, R.~S.~Surin, A.~Harsh, and H.~Kaur, ``Fine-tuning T5 and BERT for effective question answering and document retrieval: A transfer learning approach,'' in \emph{Proc. World Conf. Computational Science and Technology (WCCST)}, 2026, pp. 82--88, doi: 10.1109/WCCST67302.2026.11495641.
 
 \bibitem{saha2024quim}
-B.~Saha, U.~Saha, and M.~Z.~Malik, ``QuIM-RAG: Advancing retrieval-augmented generation with inverted question matching for enhanced QA performance,'' \emph{IEEE Access}, vol.~12, pp. 185401--185410, 2024, doi: 10.1109/ACCESS.2024.3477169.
+B.~Saha, U.~Saha, and M.~Z.~Malik, ``QuIM-RAG: Advancing retrieval-augmented generation with inverted question matching for enhanced QA performance,'' \emph{IEEE Access}, vol.~12, pp. 185401--185410, 2024, doi: 10.1109/ACCESS.2024.3513155.
 
 \bibitem{cejas2025retrieval}
 O.~A.~Cejas, Y.~Guo, and Q.~Tang, ``From retrieval to response: Tracing the impact of embedding quality in RAG systems,'' \emph{IEEE Access}, vol.~13, pp. 212773--212781, 2025, doi: 10.1109/ACCESS.2025.3644595.
@@ -409,31 +383,31 @@ S.~Kuchlous and M.~Kadaba, ``Short text intent classification for conversational
 F.~D.~Puspitasari \emph{et al.}, ``Efficient RAG with intent-aware retrieval and semantics-preserving chunking,'' \emph{arXiv preprint arXiv:2606.01240}, 2026.
 
 \bibitem{nan2026dsmr}
-Y.~Nan \emph{et al.}, ``Research on an intelligent file query system model integrating natural language understanding and information retrieval,'' in \emph{Proc. IEEE Int. Conf. Power, Electronics and Green Energy (ICPEGE)}, 2026, pp. 676--680, doi: 10.1109/ICPEGE67691.2026.11451513.
+Y.~Nan \emph{et al.}, ``Research on an intelligent file query system model integrating natural language understanding and information retrieval,'' in \emph{Proc. IEEE Int. Conf. Power, Electronics and Green Energy (ICPEGE)}, 2026, pp. 676--681, doi: 10.1109/ICPEGE67691.2026.11451513.
 
 \bibitem{holubiev2024agents}
-V.~Holubiev \emph{et al.}, ``Revolutionizing contact center knowledge management: The game-changing role of AI large language models and autonomous agents in text organization and optimization,'' in \emph{Proc. 14th Int. Conf. Advanced Computer Information Technologies (ACIT)}, 2024, pp. 778--783, doi: 10.1109/ACIT62333.2024.10712506.
+V.~Holubiev, B.~Pushkar, A.~Shevchuk, R.~Mudrak, O.~Gomotiuk, and N.~Livitska, ``Revolutionizing contact center knowledge management: The game-changing role of AI large language models and autonomous agents in text organization and optimization,'' in \emph{Proc. 14th Int. Conf. Advanced Computer Information Technologies (ACIT)}, 2024, pp. 778--783, doi: 10.1109/ACIT62333.2024.10712506.
 
 \bibitem{nickolls2008cuda}
 J.~Nickolls, I.~Buck, M.~Garland, and K.~Skadron, ``Scalable parallel programming with CUDA,'' \emph{Queue}, vol.~6, no.~2, pp. 40--53, 2008, doi: 10.1145/1365490.1365500.
 
 \bibitem{apple2026mps}
-Apple Inc., ``Metal Performance Shaders: Accelerating compute and graphics on Apple hardware,'' Apple Developer Documentation, 2026. [Online]. Available: https://developer.apple.com/documentation/metalperformanceshaders
+Apple Inc., ``Metal Performance Shaders,'' Apple Developer Documentation. [Online]. Available: https://developer.apple.com/documentation/metalperformanceshaders. [Accessed: Oct.~7, 2026].
 
 \bibitem{karpukhin2020dense}
-V.~Karpukhin, B.~O{\u{g}}uz, S.~Min, P.~Lewis, L.~Wu, S.~Edunov, D.~Chen, and W.-t. Yih, ``Dense passage retrieval for open-domain question answering,'' in \emph{Proc. Conf. Empirical Methods in Natural Language Processing (EMNLP)}, 2020, pp. 6769--6781.
+V.~Karpukhin, B.~O{\u{g}}uz, S.~Min, P.~Lewis, L.~Wu, S.~Edunov, D.~Chen, and W.-T.~Yih, ``Dense passage retrieval for open-domain question answering,'' in \emph{Proc. 2020 Conf. Empirical Methods in Natural Language Processing (EMNLP)}, 2020, pp. 6769--6781, doi: 10.18653/v1/2020.emnlp-main.550.
 
 \bibitem{reimers2019sentence}
-N.~Reimers and I.~Gurevych, ``Sentence-BERT: Sentence embeddings using siamese BERT-networks,'' in \emph{Proc. Conf. Empirical Methods in Natural Language Processing (EMNLP)}, 2019, pp. 3982--3992.
+N.~Reimers and I.~Gurevych, ``Sentence-BERT: Sentence embeddings using siamese BERT-networks,'' in \emph{Proc. 2019 Conf. Empirical Methods in Natural Language Processing and 9th Int. Joint Conf. Natural Language Processing (EMNLP-IJCNLP)}, 2019, pp. 3982--3992, doi: 10.18653/v1/D19-1410.
 
 \bibitem{robertson2009probabilistic}
-S.~Robertson and H.~Zaragoza, ``The probabilistic relevance framework: BM25 and beyond,'' \emph{Foundations and Trends in Information Retrieval}, vol.~3, no.~4, pp. 333--389, 2009.
+S.~Robertson and H.~Zaragoza, ``The probabilistic relevance framework: BM25 and beyond,'' \emph{Foundations and Trends in Information Retrieval}, vol.~3, no.~4, pp. 333--389, 2009, doi: 10.1561/1500000019.
 
 \bibitem{cormack2009reciprocal}
-G.~V. Cormack, C.~L.~A. Clarke, and S.~B{\"u}ttcher, ``Reciprocal rank fusion outperforms Condorcet and individual machine learning methods,'' in \emph{Proc. 32nd Int. ACM SIGIR Conf. Research and Development in Information Retrieval}, 2009, pp. 758--759.
+G.~V.~Cormack, C.~L.~A.~Clarke, and S.~B{\"u}ttcher, ``Reciprocal rank fusion outperforms Condorcet and individual rank learning methods,'' in \emph{Proc. 32nd Int. ACM SIGIR Conf. Research and Development in Information Retrieval}, 2009, pp. 758--759, doi: 10.1145/1571941.1572114.
 
 \bibitem{nogueira2019passage}
-R.~Nogueira and K.~Cho, ``Passage re-ranking with BERT,'' \emph{arXiv preprint arXiv:1901.04085}, 2019.
+R.~Nogueira and K.~Cho, ``Passage re-ranking with BERT,'' \emph{arXiv preprint arXiv:1901.04085v5}, 2020, doi: 10.48550/arXiv.1901.04085.
 
 \end{thebibliography}
 

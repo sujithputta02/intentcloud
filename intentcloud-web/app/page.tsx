@@ -135,16 +135,32 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  const syncHardwareOled = async (payload: { status?: string; query?: string; info?: string; match?: number }) => {
+    try {
+      await fetch("/api/hardware/oled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // Non-blocking telemetry
+    }
+  };
+
   const handleSearch = async (e?: React.FormEvent, directQuery?: string) => {
     if (e) e.preventDefault();
     const q = directQuery !== undefined ? directQuery : searchQuery;
 
     if (!q.trim()) {
       setSearchResults(null);
+      syncHardwareOled({ status: "ONLINE", query: "Ready for query", info: "Pi 3B | Qdrant" });
       return;
     }
 
     setIsSearching(true);
+    // Push real-time search state to OLED display
+    syncHardwareOled({ status: "SEARCHING", query: q, info: "Cognitive Ingest" });
+
     try {
       const res = await fetch(
         `${API_URL}/search?query=${encodeURIComponent(q)}&top_k=3&search_mode=hybrid`,
@@ -153,11 +169,30 @@ export default function Home() {
       if (res.ok) {
         const data: SearchResponse = await res.json();
         setSearchResults(data);
+
+        // Update physical OLED screen with outcome
+        if (data.is_confident_match && data.results.length > 0) {
+          const top = data.results[0];
+          syncHardwareOled({
+            status: "MATCH",
+            query: q,
+            info: `${top.relevance_percentage}% Match`,
+            match: top.relevance_percentage,
+          });
+        } else {
+          syncHardwareOled({
+            status: "NO MATCH",
+            query: q,
+            info: "Refine query",
+          });
+        }
       } else {
         setSearchResults(null);
+        syncHardwareOled({ status: "ERROR", query: q, info: "API Error" });
       }
     } catch {
       setSearchResults(null);
+      syncHardwareOled({ status: "OFFLINE", query: q, info: "Connection Fail" });
     } finally {
       setIsSearching(false);
     }
@@ -507,6 +542,7 @@ export default function Home() {
                       onClick={() => {
                         setSearchQuery("");
                         setSearchResults(null);
+                        syncHardwareOled({ status: "ONLINE", query: "Ready for query", info: "Pi 3B | Qdrant" });
                       }}
                       className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition"
                       aria-label="Clear search"
@@ -563,6 +599,7 @@ export default function Home() {
                   onClick={() => {
                     setSearchResults(null);
                     setSearchQuery("");
+                    syncHardwareOled({ status: "ONLINE", query: "Ready for query", info: "Pi 3B | Qdrant" });
                   }}
                   className="text-xs text-[var(--accent)] hover:underline"
                 >

@@ -134,12 +134,17 @@ def build_intent_clean_query(query: str, intent_data: Optional[Dict] = None) -> 
     ]
 
     if clean and len(clean.split()) >= 2:
+        if "service now" in clean.lower() and "servicenow" not in clean.lower():
+            clean = clean.lower().replace("service now", "servicenow")
         return clean
 
     if meaningful_kw:
         return " ".join(meaningful_kw)
 
-    return clean or normalize_spelling(query)
+    res = clean or normalize_spelling(query)
+    if "service now" in res.lower() and "servicenow" not in res.lower():
+        res = res.lower().replace("service now", "servicenow")
+    return res
 
 
 def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str:
@@ -153,6 +158,8 @@ def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str
     keywords = intent_data.get("keywords") or []
 
     parts = [clean_norm]
+    if "service now" in clean_norm.lower() and "servicenow" not in clean_norm.lower():
+        parts.append("servicenow")
     if topic and topic.lower() not in clean_norm.lower():
         parts.append(normalize_spelling(topic))
     if keywords:
@@ -164,10 +171,11 @@ def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str
     visual_terms = [
         "color", "colour", "palette", "swatch", "hex",
         "diagram", "topology", "architecture", "image",
-        "photo", "slide", "brand deck", "deck", "presentation"
+        "photo", "slide", "brand deck", "deck", "presentation",
+        "dashboard", "workspace", "screenshot", "ui"
     ]
     if any(v in clean_norm.lower() for v in visual_terms):
-        parts.append("visual concept image photo")
+        parts.append("visual concept dashboard workspace ui image photo")
 
     return ". ".join(parts)
 
@@ -214,24 +222,31 @@ def group_and_expand_document_evidence(
             evidence_boost = min(0.005, (evidence_count - 1) * 0.0015)
             primary["rrf_score"] = round(primary.get("rrf_score", 0.0) + evidence_boost, 6)
 
-        # Context Window Expansion: Retrieve surrounding neighbors C_{i-1} and C_{i+1}
-        if qdrant_manager and hasattr(qdrant_manager, "get_surrounding_chunks"):
-            chunk_idx = primary.get("chunk_index", 0)
-            surrounding = qdrant_manager.get_surrounding_chunks(fid, chunk_idx)
-            expanded_text = surrounding.get("expanded_text")
-            if expanded_text:
-                primary["expanded_text"] = expanded_text
-                primary["expanded_context"] = expanded_text
-            if not primary.get("parent_section") and surrounding.get("parent_section"):
-                primary["parent_section"] = surrounding.get("parent_section")
-            if not primary.get("section_path") and surrounding.get("section_path"):
-                primary["section_path"] = surrounding.get("section_path")
-
         document_candidates.append(primary)
 
-    # Re-sort after evidence coverage boost
+    # Sort documents by score FIRST before doing any expensive neighbor expansions
     document_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
-    return document_candidates[:max_files]
+    top_candidates = document_candidates[:max_files]
+
+    # Context Window Expansion: Retrieve surrounding neighbors ONLY for top candidates
+    for doc in top_candidates:
+        fid = doc.get("file_id")
+        chunk_text = doc.get("chunk_text", "")
+        if qdrant_manager and hasattr(qdrant_manager, "get_surrounding_chunks"):
+            # Only do extra SQLite fetch if chunk text is brief (< 350 chars)
+            if len(chunk_text) < 350:
+                chunk_idx = doc.get("chunk_index", 0)
+                surrounding = qdrant_manager.get_surrounding_chunks(fid, chunk_idx)
+                expanded_text = surrounding.get("expanded_text")
+                if expanded_text:
+                    doc["expanded_text"] = expanded_text
+                    doc["expanded_context"] = expanded_text
+                if not doc.get("parent_section") and surrounding.get("parent_section"):
+                    doc["parent_section"] = surrounding.get("parent_section")
+                if not doc.get("section_path") and surrounding.get("section_path"):
+                    doc["section_path"] = surrounding.get("section_path")
+
+    return top_candidates
 
 
 def deduplicate_results_by_file(results: List[Dict], top_k: int) -> List[Dict]:

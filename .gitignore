@@ -72,6 +72,12 @@ intentcloud-api/uvicorn
 .pytest_cache/
 .coverage
 htmlcov/
+test_corpus/
+**/test_corpus/
+qdrant_storage/
+**/qdrant_storage/
+*.sqlite
+*.sqlite3
 
 # Misc
 *.log

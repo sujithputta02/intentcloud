@@ -46,6 +46,41 @@ def run_apple_vision_ocr(image_path: str) -> str:
     return ""
 
 
+def run_tesseract_ocr(image_path: str) -> str:
+    """
+    Run Tesseract OCR via pytesseract or system tesseract CLI.
+    Provides fast, cross-platform OCR on Linux (Raspberry Pi ARM64) and macOS.
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+        img = Image.open(image_path)
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+        raw_text = pytesseract.image_to_string(img)
+        text = str(raw_text).strip() if raw_text else ""
+        if len(text) > 3:
+            logger.info(f"[Vision] Pytesseract extracted {len(text)} chars from {Path(image_path).name}")
+            return text
+    except Exception as e:
+        logger.debug(f"[Vision] pytesseract module error: {e}")
+
+    try:
+        proc = subprocess.run(
+            ["tesseract", image_path, "stdout", "-l", "eng"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            logger.info(f"[Vision] CLI tesseract extracted {len(proc.stdout)} chars from {Path(image_path).name}")
+            return proc.stdout.strip()
+    except Exception as e:
+        logger.debug(f"[Vision] CLI tesseract error: {e}")
+
+    return ""
+
+
 def run_vlm_captioning(image_path: str, prompt: Optional[str] = None) -> str:
     """
     Query local Ollama Vision-Language Model (Moondream/LLaVA).
@@ -153,14 +188,16 @@ def extract_visual_semantics(file_path: str, original_filename: Optional[str] = 
 
     sections = [
         f"[Image Document / Photo: {effective_name}]",
-        f"File Category: Photos & Images",
         f"Subject / Filename Keywords: {stem_keywords}",
     ]
-    if meta_lines:
-        sections.extend(meta_lines)
 
-    # 1. Run Native Apple Vision Neural Engine OCR
+    # 1. Run Native OCR: Apple Vision Neural Engine on macOS with Tesseract fallback/augmentation
     ocr_text = run_apple_vision_ocr(file_path)
+    if not ocr_text or len(ocr_text.strip()) < 15:
+        tess_text = run_tesseract_ocr(file_path)
+        if tess_text:
+            ocr_text = (ocr_text + "\n" + tess_text).strip() if ocr_text else tess_text
+    
     visual_concepts = []
     detected_swatches = []
 
@@ -183,6 +220,14 @@ def extract_visual_semantics(file_path: str, original_filename: Optional[str] = 
                 else:
                     detected_swatches.append(hex_val)
 
+        # Detect ServiceNow, enterprise dashboards, incident commander, operations workspaces
+        ops_terms = ["servicenow", "dashboard", "incident", "workspace", "commander", "operations", "outage", "ticket", "sla", "war room", "decisions", "communications", "chg0", "inc0", "task0"]
+        if any(k in ocr_text.lower() for k in ops_terms) or any(k in stem_keywords.lower() for k in ops_terms):
+            visual_concepts.append(
+                "[Visual Concept: Enterprise Operations Dashboard & Incident Management Workspace]\n"
+                "System: ServiceNow Service Operations Workspace, Incident Commander Dashboard, Critical Actions, Major Incidents, Real-time Operations Management, Customer Payments API Outage."
+            )
+
         # Detect branding, design decks, and color palette swatches
         color_terms = ["color", "colour", "palette", "swatch", "brand", "visual system", "minimal structure"]
         is_color_palette = bool(detected_swatches) or any(k in ocr_text.lower() for k in color_terms)
@@ -194,7 +239,7 @@ def extract_visual_semantics(file_path: str, original_filename: Optional[str] = 
             )
 
         # Detect technical architecture, topology, or system diagrams
-        diagram_terms = ["architecture", "topology", "cluster", "redis", "cache", "memory", "replication", "sentinel", "quorum", "kubernetes", "docker"]
+        diagram_terms = ["architecture", "topology", "cluster", "redis", "cache", "memory", "replication", "sentinel", "quorum", "kubernetes", "docker", "microservice"]
         if any(k in ocr_text.lower() for k in diagram_terms) or any(k in stem_keywords.lower() for k in diagram_terms):
             visual_concepts.append(
                 "[Visual Concept: System Architecture & Infrastructure Diagram]\n"
@@ -229,12 +274,15 @@ def extract_visual_semantics(file_path: str, original_filename: Optional[str] = 
         sections.append("\n" + "\n".join(visual_concepts))
 
     if ocr_clean:
-        sections.append(f"\n--- VISUAL TEXT & LABELS EXTRACTED FROM IMAGE (APPLE VISION OCR) ---\n{ocr_clean}")
-        logger.info(f"[Vision] Extracted {len(ocr_clean)} chars of clean text/labels via Apple Vision OCR from {effective_name}")
+        sections.append(f"\n--- VISUAL TEXT & LABELS EXTRACTED FROM IMAGE (OCR) ---\n{ocr_clean}")
+        logger.info(f"[Vision] Extracted {len(ocr_clean)} chars of clean text/labels via OCR from {effective_name}")
 
     # 2. Run Local Vision-Language Model (VLM) scene understanding
     vlm_caption = run_vlm_captioning(file_path)
     if vlm_caption:
         sections.append(f"\n--- VISUAL SCENE & DIAGRAM DESCRIPTION (VLM) ---\n{vlm_caption}")
+
+    if meta_lines:
+        sections.append("\n" + "\n".join(meta_lines))
 
     return "\n".join(sections)

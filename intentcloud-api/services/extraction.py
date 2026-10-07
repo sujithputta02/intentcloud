@@ -219,16 +219,31 @@ def _extract_text_tree(file_path: str, filename: str) -> tuple[List[Dict[str, An
 
 
 def _extract_pdf_pure_fallback(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], str]:
-    """Pure-Python standard-library stream extraction for PDF without fitz."""
+    """Fast linear standard-library stream extraction for PDF without fitz."""
     import zlib
     text_chunks: List[str] = []
     try:
         with open(file_path, "rb") as f:
             content = f.read()
 
-        stream_matches = re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", content, re.DOTALL)
-        for m in stream_matches:
-            raw_stream = m.group(1)
+        cursor = 0
+        streams_found = 0
+        max_streams = 50
+        while streams_found < max_streams and cursor < len(content):
+            s_idx = content.find(b"stream", cursor)
+            if s_idx == -1:
+                break
+            nl_idx = content.find(b"\n", s_idx, s_idx + 12)
+            if nl_idx == -1:
+                cursor = s_idx + 6
+                continue
+            e_idx = content.find(b"endstream", nl_idx + 1)
+            if e_idx == -1:
+                break
+            raw_stream = content[nl_idx + 1:e_idx].rstrip(b"\r\n")
+            cursor = e_idx + 9
+            streams_found += 1
+
             try:
                 decompressed = zlib.decompress(raw_stream)
             except Exception:
@@ -275,7 +290,21 @@ def _extract_pdf_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any
         sec_idx = 0
 
         for page_num, page in enumerate(doc):
-            page_text = page.get_text()
+            page_text = str(page.get_text() or "")
+            
+            # If page text is very sparse (scanned diagram, slide, or image), perform OCR
+            if len(page_text.strip()) < 40:
+                try:
+                    import pytesseract
+                    from PIL import Image
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    ocr_p_text = str(pytesseract.image_to_string(img) or "")
+                    if len(ocr_p_text.strip()) > len(page_text.strip()):
+                        page_text = ocr_p_text
+                except Exception as err:
+                    logger.debug(f"[PDF] Page {page_num + 1} OCR fallback error: {err}")
+
             full_text_parts.append(page_text)
             
             blocks = page.get_text("blocks")
@@ -316,11 +345,29 @@ def _extract_pdf_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any
                         "page": page_num + 1
                     })
                     sec_idx += 1
+            elif page_text.strip():
+                # If blocks empty but page_text from OCR exists, register section
+                sections.append({
+                    "section_id": f"sec_{sec_idx}",
+                    "title": current_title,
+                    "section_path": [filename, f"Page {page_num + 1}"],
+                    "text": page_text.strip(),
+                    "page": page_num + 1
+                })
+                sec_idx += 1
 
         doc.close()
         full_text = "\n\n".join(full_text_parts)
         if not full_text.strip():
             full_text = extract_pdf_with_ocr(file_path)
+            if full_text.strip() and not sections:
+                sections.append({
+                    "section_id": "sec_0",
+                    "title": filename,
+                    "section_path": [filename],
+                    "text": full_text.strip(),
+                    "page": 1
+                })
         return sections, [], full_text
     except Exception as e:
         logger.warning(f"[PDF] Structured PyMuPDF extraction unavailable or failed ({e}), using pure-python stream fallback")
