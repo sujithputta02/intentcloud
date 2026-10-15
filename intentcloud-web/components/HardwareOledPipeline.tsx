@@ -61,42 +61,124 @@ export default function HardwareOledPipeline({
     return () => clearInterval(timer);
   }, []);
 
+  const animTimerRef = useRef<NodeJS.Timeout[]>([]);
+
+  // Helper to push telemetry to hardware
+  const pushToOled = (stageStatus: string, infoText: string, matchScore?: number) => {
+    try {
+      fetch("/api/hardware/oled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: stageStatus,
+          query: query || "Ready for query",
+          info: infoText,
+          match: matchScore,
+        }),
+      }).catch(() => {});
+    } catch {}
+  };
+
+  const clearAnimTimers = () => {
+    animTimerRef.current.forEach((t) => clearTimeout(t));
+    animTimerRef.current = [];
+  };
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => clearAnimTimers();
+  }, []);
+
   // Manage real-time pipeline stages when searching starts and completes
   useEffect(() => {
     if (isSearching) {
+      clearAnimTimers();
       setIsManualReplay(false);
+      
+      // Step 1: Ingest
       setCurrentStage("ingest");
+      pushToOled("INGEST", "Query Ingest");
 
-      const t1 = setTimeout(() => setCurrentStage("cognitive"), 1200);
-      const t2 = setTimeout(() => setCurrentStage("transport"), 2800);
-      const t3 = setTimeout(() => setCurrentStage("memory"), 4500);
-      const t4 = setTimeout(() => setCurrentStage("rerank"), 7500);
+      // Step 2: Cognitive Parse (450ms)
+      const t1 = setTimeout(() => {
+        setCurrentStage("cognitive");
+        pushToOled("PARSING", "llama3.2:1b");
+      }, 450);
 
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-        clearTimeout(t4);
-      };
-    } else if (topResult) {
-      setCurrentStage("pushed");
-    } else {
+      // Step 3: Ethernet Transport (900ms)
+      const t2 = setTimeout(() => {
+        setCurrentStage("transport");
+        pushToOled("ETHERNET", "LAN 192.168.2.2");
+      }, 900);
+
+      // Step 4: Hybrid Qdrant Search (1350ms)
+      const t3 = setTimeout(() => {
+        setCurrentStage("memory");
+        pushToOled("SEARCHING", "Dense + Sparse");
+      }, 1350);
+
+      // Step 5: Cross-Encoder Rerank (1800ms)
+      const t4 = setTimeout(() => {
+        setCurrentStage("rerank");
+        pushToOled("RERANK", "MiniLM Neural");
+      }, 1800);
+
+      // Step 6: OLED Push result (2250ms)
+      const t5 = setTimeout(() => {
+        setCurrentStage("pushed");
+        if (topResult) {
+          pushToOled("PUSHED", `Pi 3B | ${topResult.relevance_percentage}% Match`, topResult.relevance_percentage);
+        } else {
+          pushToOled("ONLINE", "Ready for query");
+        }
+      }, 2250);
+
+      animTimerRef.current = [t1, t2, t3, t4, t5];
+    } else if (!isSearching && !topResult && currentStage !== "idle") {
+      clearAnimTimers();
       setCurrentStage("idle");
+    }
+  }, [isSearching]);
+
+  // Keep pushed state synced if topResult arrives
+  useEffect(() => {
+    if (!isSearching && topResult && currentStage === "idle") {
+      setCurrentStage("pushed");
     }
   }, [isSearching, topResult]);
 
   // Manual replay animation for demonstrations
   const runManualReplay = () => {
+    clearAnimTimers();
     setIsManualReplay(true);
     setCurrentStage("ingest");
-    setTimeout(() => setCurrentStage("cognitive"), 700);
-    setTimeout(() => setCurrentStage("transport"), 1600);
-    setTimeout(() => setCurrentStage("memory"), 2600);
-    setTimeout(() => setCurrentStage("rerank"), 3700);
-    setTimeout(() => {
+    pushToOled("INGEST", "Query Ingest");
+
+    const t1 = setTimeout(() => {
+      setCurrentStage("cognitive");
+      pushToOled("PARSING", "llama3.2:1b");
+    }, 450);
+    const t2 = setTimeout(() => {
+      setCurrentStage("transport");
+      pushToOled("ETHERNET", "LAN 192.168.2.2");
+    }, 900);
+    const t3 = setTimeout(() => {
+      setCurrentStage("memory");
+      pushToOled("SEARCHING", "Dense + Sparse");
+    }, 1350);
+    const t4 = setTimeout(() => {
+      setCurrentStage("rerank");
+      pushToOled("RERANK", "MiniLM Neural");
+    }, 1800);
+    const t5 = setTimeout(() => {
       setCurrentStage("pushed");
       setIsManualReplay(false);
-    }, 4800);
+      if (topResult) {
+        pushToOled("PUSHED", `Pi 3B | ${topResult.relevance_percentage}% Match`, topResult.relevance_percentage);
+      }
+    }, 2250);
+
+    animTimerRef.current = [t1, t2, t3, t4, t5];
   };
 
   const getStageNumber = (stage: PipelineStage): number => {

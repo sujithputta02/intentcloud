@@ -128,44 +128,45 @@ def generate_fig0_architecture():
 
 
 def generate_fig1_category_accuracy():
-    """Figure 5: Per-Category Top-1 Accuracy & Rejection Rate across 5 Query Types."""
+    """Figure 5: Per-Category Top-1 Accuracy & Rejection Rate across Held-Out Benchmark."""
     categories = [
         "Exact\nLexical",
         "Semantic\nParaphrase",
         "Multi-\nConcept",
         "Version\nLineage",
-        "Negative\nRejection*"
+        "Hard Neg.\nRejection",
+        "OOD\nAbstention"
     ]
     
-    mode_a = [100.0, 50.0, 70.0, 70.0, 20.0]  # Sparse BM25
-    mode_b = [60.0, 90.0, 70.0, 70.0, 100.0]  # Dense Bi-Encoder
-    mode_c = [100.0, 100.0, 100.0, 90.0, 100.0] # Proposed Hybrid
+    mode_a = [100.0, 53.3, 73.3, 60.0, 17.5, 20.0]  # Sparse BM25
+    mode_b = [66.7, 86.7, 73.3, 66.7, 45.0, 100.0]  # Dense Bi-Encoder
+    mode_c = [100.0, 100.0, 100.0, 100.0, 97.5, 100.0] # Proposed Hybrid Pipeline
     
     x = np.arange(len(categories))
     width = 0.25
     
-    fig, ax = plt.subplots(figsize=(3.5, 2.5), dpi=300)
+    fig, ax = plt.subplots(figsize=(3.5, 2.6), dpi=300)
     
     rects1 = ax.bar(x - width, mode_a, width, label="Mode A (BM25)", color="#4A5568", edgecolor="#2D3748", hatch="///")
     rects2 = ax.bar(x, mode_b, width, label="Mode B (Dense)", color="#319795", edgecolor="#234E52", hatch="..")
     rects3 = ax.bar(x + width, mode_c, width, label="Mode C (Proposed)", color="#2B6CB0", edgecolor="#1A365D")
     
-    ax.set_ylabel("Accuracy / Rejection Rate (%)", fontweight="bold")
-    ax.set_title("Per-Category Retrieval Accuracy & Rejection", fontweight="bold", pad=20)
+    ax.set_ylabel("Accuracy / Rejection (%)", fontweight="bold", fontsize=7.2)
+    ax.set_title("Per-Category Retrieval Accuracy & Rejection", fontweight="bold", fontsize=8.0, pad=18)
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, fontsize=6.8)
-    ax.set_ylim(0, 125)
+    ax.set_xticklabels(categories, fontsize=5.8)
+    ax.set_ylim(0, 128)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.6, alpha=0.7)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     
     for i, rect in enumerate(rects3):
         height = rect.get_height()
-        ax.annotate(f"{int(height)}%",
+        ax.annotate(f"{height:.1f}%" if height < 100 else "100%",
                     xy=(rect.get_x() + rect.get_width() / 2, height),
                     xytext=(0, 2), textcoords="offset points",
-                    ha="center", va="bottom", fontsize=6.5, fontweight="bold", color="#1A365D")
+                    ha="center", va="bottom", fontsize=5.6, fontweight="bold", color="#1A365D")
         
-    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.01), ncol=3, frameon=False, fontsize=6.8, handlelength=1.4)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.15), ncol=3, frameon=False, fontsize=5.8, handlelength=1.2, columnspacing=0.8)
     
     plt.tight_layout()
     pdf_path = OUTPUT_DIR / "fig_category_accuracy.pdf"
@@ -173,6 +174,11 @@ def generate_fig1_category_accuracy():
     plt.savefig(pdf_path, format="pdf", bbox_inches="tight")
     plt.savefig(png_path, format="png", bbox_inches="tight", dpi=300)
     plt.close()
+    
+    # Also copy to parent docs/paper/ directory for direct LaTeX inclusion
+    import shutil
+    shutil.copy(pdf_path, OUTPUT_DIR.parent / pdf_path.name)
+    shutil.copy(png_path, OUTPUT_DIR.parent / png_path.name)
     print(f"✓ Saved Figure: {pdf_path.name}")
 
 

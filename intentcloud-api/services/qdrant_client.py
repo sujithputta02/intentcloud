@@ -31,6 +31,7 @@ from qdrant_client.models import (
     SparseVector,
     SparseVectorParams,
     SparseIndexParams,
+    PayloadSchemaType,
 )
 
 from services.embeddings import (
@@ -94,8 +95,19 @@ class QdrantIndexManager:
 
             self._ensure_collection_exists()
 
+            # Ensure ultra-fast O(1) keyword indexing on file_id and filename
+            for field in ["file_id", "filename"]:
+                try:
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name=field,
+                        field_schema=PayloadSchemaType.KEYWORD,
+                    )
+                except Exception:
+                    pass
+
             logger.info(
-                "[Qdrant] Client initialized successfully"
+                "[Qdrant] Client initialized successfully with payload indexes"
             )
 
         except Exception as exc:
@@ -346,21 +358,17 @@ class QdrantIndexManager:
             file_id,
         )
 
+        is_duplicate = False
+        duplicate_info = None
         if duplicate:
-
-            logger.warning(
-                "[Duplicate] %s matches %s with %.3f",
+            logger.info(
+                "[Duplicate Notice] %s matches %s with %.3f - indexing document to ensure search visibility",
                 filename,
                 duplicate["filename"],
                 duplicate["score"],
             )
-
-            return {
-                "success": False,
-                "duplicate": True,
-                "file_id": file_id,
-                "existing_file": duplicate,
-            }
+            is_duplicate = True
+            duplicate_info = duplicate
 
 
         # ---------------------------------------------------------------
@@ -411,9 +419,12 @@ class QdrantIndexManager:
                 "prev_chunk_id": f"{file_id}:{prev_idx}" if prev_idx is not None else None,
                 "next_chunk_id": f"{file_id}:{next_idx}" if next_idx is not None else None,
                 "unit_type": chunk.get("unit_type", "chunk"),
+                "is_figure": chunk.get("is_figure", False),
+                "figure_data": chunk.get("figure_data"),
 
                 # Universal dynamic keywords.
                 "keywords": chunk["keywords"],
+
 
                 # Upload information.
                 "upload_time": upload_time,
@@ -464,6 +475,8 @@ class QdrantIndexManager:
             "file_id": file_id,
             "filename": filename,
             "chunk_count": len(points),
+            "duplicate": is_duplicate,
+            "existing_file": duplicate_info,
             "document_keywords": representation[
                 "document_keywords"
             ],
@@ -726,8 +739,11 @@ class QdrantIndexManager:
             "prev_chunk_id": payload.get("prev_chunk_id"),
             "next_chunk_id": payload.get("next_chunk_id"),
             "unit_type": payload.get("unit_type", "chunk"),
+            "is_figure": payload.get("is_figure", False),
+            "figure_data": payload.get("figure_data"),
 
             "keywords": payload.get(
+
                 "keywords",
                 [],
             ),

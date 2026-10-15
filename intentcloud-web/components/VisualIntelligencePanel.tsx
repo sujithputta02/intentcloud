@@ -48,11 +48,11 @@ export function parseVisualMetadata(raw: string): ParsedVisualMetadata {
   if (!raw) return result;
 
   // 1. Technical Specs
-  const resMatch = raw.match(/Resolution:\s*([0-9xX]+(?:\s*pixels)?)/i);
-  if (resMatch) result.resolution = resMatch[1].replace(/pixels/i, "").trim();
+  const resMatch = raw.match(/Resolution:\s*([0-9xX]+(?:\s*pixels)?)|(\b\d{2,5}x\d{2,5}\b)/i);
+  if (resMatch) result.resolution = (resMatch[1] || resMatch[2]).replace(/pixels/i, "").trim();
 
-  const formatMatch = raw.match(/Format:\s*([^,\n]+)/i);
-  if (formatMatch) result.format = formatMatch[1].trim();
+  const formatMatch = raw.match(/Format:\s*([^,\n]+)|\b(JPEG|PNG|WEBP|SVG|GIF|TIFF)\b/i);
+  if (formatMatch) result.format = (formatMatch[1] || formatMatch[2]).trim().toUpperCase();
 
   const colorMatch = raw.match(/Color Mode:\s*([^\n,]+)/i);
   if (colorMatch) result.colorMode = colorMatch[1].trim();
@@ -60,35 +60,51 @@ export function parseVisualMetadata(raw: string): ParsedVisualMetadata {
   const kwMatch = raw.match(/Subject \/ Filename Keywords:\s*([^\n]+)/i);
   if (kwMatch) result.keywords = kwMatch[1].trim();
 
-  // 2. Swatches (from Swatches: line or OCR)
-  const swatchesLineMatch = raw.match(/Swatches:\s*([^\n]+)/i);
+  // 2. Swatches (from structured sections, Active Swatches line, or hex pairings)
   const foundHexes = new Set<string>();
 
-  if (swatchesLineMatch) {
-    const swatchStr = swatchesLineMatch[1];
-    const swatchRegex = /(?:([A-Za-z0-9\s_-]+)\s*)?\((#[0-9a-fA-F]{6})\)|(#[0-9a-fA-F]{6})/g;
-    let match;
-    while ((match = swatchRegex.exec(swatchStr)) !== null) {
-      const hex = (match[2] || match[3]).toUpperCase();
-      if (!foundHexes.has(hex)) {
-        foundHexes.add(hex);
-        let name = (match[1] || "").trim();
-        if (name) {
-          name = name.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-        } else {
-          name = hex;
+  // A. Check dedicated block: --- EXTRACTED COLOR SWATCHES & HEX CODES ---
+  const swatchesBlockMatch = raw.match(/---\s*EXTRACTED COLOR SWATCHES & HEX CODES\s*---\n([\s\S]*?)(?=(?:\n---|\nTechnical Metadata|\n\[DOCUMENT SUMMARY|\n$))/i);
+  if (swatchesBlockMatch) {
+    const lines = swatchesBlockMatch[1].split("\n");
+    for (const line of lines) {
+      const m = line.match(/^[-*•]?\s*([^:]+):\s*(#[0-9a-fA-F]{6})/i);
+      if (m) {
+        const hex = m[2].toUpperCase();
+        const name = m[1].trim().replace(/\b\w/g, (c) => c.toUpperCase());
+        if (!foundHexes.has(hex)) {
+          foundHexes.add(hex);
+          result.swatches.push({ name, hex });
         }
-        result.swatches.push({ name, hex });
+      }
+    }
+  }
+
+  // B. Check Active Swatches: ... or Swatches: ...
+  const activeSwatchesMatch = raw.match(/(?:Active\s+)?Swatches:\s*([^\n]+)/i);
+  if (activeSwatchesMatch) {
+    const swatchStr = activeSwatchesMatch[1];
+    const items = swatchStr.split(/[,;]/);
+    for (const it of items) {
+      const m = it.match(/(?:([^:(]+?)\s*[:(]\s*)?(#[0-9a-fA-F]{6})/i);
+      if (m) {
+        const hex = m[2].toUpperCase();
+        let name = (m[1] || "").trim();
+        name = name ? name.replace(/\b\w/g, (c) => c.toUpperCase()) : hex;
+        if (!foundHexes.has(hex)) {
+          foundHexes.add(hex);
+          result.swatches.push({ name, hex });
+        }
       }
     }
   }
 
   // 3. Concepts
-  const conceptRegex = /\[Visual Concept:\s*([^\]]+)\]\s*\n([\s\S]*?)(?=(?:\n\[Visual Concept:|\n---\s*VISUAL|\n$))/g;
+  const conceptRegex = /\[Visual Concept:\s*([^\]]+)\]\s*\n([\s\S]*?)(?=(?:\n\[Visual Concept:|\n---\s*VISUAL|\n---|\n$))/g;
   let cmatch;
   while ((cmatch = conceptRegex.exec(raw)) !== null) {
     const title = cmatch[1].trim();
-    const rawBody = cmatch[2].replace(/Swatches:\s*[^\n]+/i, "").trim();
+    const rawBody = cmatch[2].replace(/(?:Active\s+)?Swatches:\s*[^\n]+/i, "").trim();
     
     let type: "palette" | "presentation" | "architecture" | "general" = "general";
     const lowerTitle = title.toLowerCase();
@@ -104,7 +120,7 @@ export function parseVisualMetadata(raw: string): ParsedVisualMetadata {
   }
 
   // 4. OCR text
-  const ocrMatch = raw.match(/---\s*VISUAL TEXT & LABELS EXTRACTED FROM IMAGE[^\n]*---\n([\s\S]*?)(?=(?:\n---\s*VISUAL SCENE|\n$))/i);
+  const ocrMatch = raw.match(/---\s*VISUAL TEXT & LABELS EXTRACTED FROM IMAGE[^\n]*---\n([\s\S]*?)(?=(?:\n---\s*VISUAL SCENE|\n---|\nTechnical Metadata|\n$))/i);
   if (ocrMatch) {
     result.ocrLines = ocrMatch[1]
       .split("\n")
@@ -131,8 +147,8 @@ export function parseVisualMetadata(raw: string): ParsedVisualMetadata {
     }
   }
 
-  // 5. VLM Caption
-  const vlmMatch = raw.match(/---\s*VISUAL SCENE & DIAGRAM DESCRIPTION[^\n]*---\n([\s\S]*)$/i);
+  // 5. VLM Scene Caption
+  const vlmMatch = raw.match(/---\s*(?:DETAILED VISUAL SCENE DESCRIPTION|VISUAL SCENE & DIAGRAM DESCRIPTION[^\n]*)\s*---\n([\s\S]*?)(?=(?:\n---|\nTechnical Metadata|\n\[DOCUMENT SUMMARY|\n$))/i);
   if (vlmMatch) {
     result.vlmCaption = vlmMatch[1].trim();
   }

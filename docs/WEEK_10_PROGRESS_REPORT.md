@@ -57,18 +57,18 @@ Devarakaggalahalli, Harohalli Kanakapura Road, Bangalore South Dt., Karnataka 56
 
 ## Work Planned for the Following Week (Week 11)
 
+- Optimize and improve the search retrieval pipeline across all file types (PDF, DOCX, TXT, and source code) to ensure comprehensive document coverage, instant indexing, and sub-second query response times.
+- Substantially revise and improve the IEEE conference paper draft: expanding theoretical formulations, integrating refined ablation study tables, updating high-resolution architecture diagrams, and formatting strictly to IEEE conference guidelines based on guide recommendations.
 - Compile and structure the comprehensive Phase-1 Capstone Project Report incorporating system architecture, mathematical formulations, implementation workflow, and 150-corpus empirical results.
-- Refine, proofread, and format the IEEE conference paper in alignment with conference author guidelines in consultation with the project guide.
-- Complete the conference submission package and submit the refined paper to the targeted IEEE conference.
-- Prepare the final Phase-1 presentation slide deck and set up the live edge hardware demonstration for the university evaluation committee.
+- Finalize the conference submission package and submit the refined paper to the targeted IEEE conference in consultation with the project guide.
 
 ---
 
 ## Percentage Work Completed
 
-**95%**
+**81%**
 
-*PRD Phase-1 Week 10 target is 90%–95%. Completed this week: Generation and indexing of the 150-document multi-domain corpus, execution of the 50-query empirical evaluation suite, validation of 95.0% Top-1 / 100.0% Top-3 accuracy and 100% negative rejection, integration of the physical OLED hardware status pipeline, and updating of the IEEE conference paper draft with final empirical numbers. Phase-1 core implementation is 100% complete, with Week 11 dedicated to project report compilation, paper refinement, and conference submission.*
+*PRD Phase-1 Week 10 target is 78%–83% (Week 6: 54% → Week 7: 62% → Week 8: 67% → Week 9: 74% → Week 10: 81%). Completed this week (+7%): Generation and indexing of the 150-document multi-domain corpus, execution of the 50-query empirical evaluation suite, validation of 95.0% Top-1 / 100.0% Top-3 accuracy and 100% negative rejection, integration of the physical OLED hardware status pipeline, and updating of the IEEE conference paper draft with empirical evaluation data. Paces smoothly into Weeks 11–14 for comprehensive project report documentation, paper submission refinement, and committee review presentation.*
 
 ---
 

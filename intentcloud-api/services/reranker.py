@@ -144,10 +144,38 @@ class RerankerManager:
         if not candidates:
             return [], False, "No candidates found for query."
 
-        # Score top candidates: on edge CPU, cap at min(top_k + 1, 4) to ensure sub-2s latency!
-        # On GPU/MPS, we can score up to 6 candidates.
-        max_cands = min(top_k + 1, 4) if self._device == "cpu" else min(max(top_k * 2, 5), 6)
-        candidates_to_score = candidates[:max_cands]
+        SPELLING_VARIANTS = {
+            "colour": "color",
+            "colours": "colors",
+            "behaviour": "behavior",
+            "synchronise": "synchronize",
+            "optimise": "optimize",
+        }
+
+        # Normalize query terms for candidate scoring prioritization
+        clean_q_terms = [
+            SPELLING_VARIANTS.get(w.lower(), w.lower())
+            for w in re.findall(r"\w+", query)
+            if len(w) > 2 and w.lower() not in {"need", "want", "find", "show", "give", "file", "document", "photo", "image", "related"}
+        ]
+
+        def _prioritize_candidate(c: Dict) -> float:
+            base_rrf = float(c.get("rrf_score", 0.0))
+            text_corpus = (
+                str(c.get("filename", "")) + " " +
+                str(c.get("chunk_text", "")) + " " +
+                " ".join(str(k) for k in c.get("keywords", [])) + " " +
+                " ".join(str(t) for t in c.get("topic_tags", []))
+            ).lower()
+            for uk, us in SPELLING_VARIANTS.items():
+                text_corpus = text_corpus.replace(uk, us)
+            kw_hits = sum(1 for kw in clean_q_terms if kw in text_corpus)
+            return base_rrf + (0.015 * kw_hits)
+
+        # Prioritize candidates that contain exact query keywords
+        sorted_candidates = sorted(candidates, key=_prioritize_candidate, reverse=True)
+        max_cands = min(max(top_k * 2, 6), 8)
+        candidates_to_score = sorted_candidates[:max_cands]
         if self._model is None:
             logger.warning("[Reranker] Model not initialized, using high-precision lexical fallback")
             return candidates[:top_k], len(candidates) > 0, "Lexical match verified"
@@ -176,7 +204,13 @@ class RerankerManager:
                 or cand.get("sentence_text")
                 or cand.get("filename", "")
             )
-            full_text = f"{sec_prefix}{content_text}".strip()
+            tags_hint = ""
+            if cand.get("topic_tags"):
+                tags_hint = f" [Keywords: {', '.join(cand['topic_tags'][:8])}]"
+            elif cand.get("keywords"):
+                tags_hint = f" [Keywords: {', '.join(cand['keywords'][:8])}]"
+
+            full_text = f"{sec_prefix}{content_text}{tags_hint}".strip()
             if len(full_text) > max_text_len:
                 q_terms = [w.lower() for w in re.findall(r"\w+", query) if len(w) > 2]
                 match_pos = -1
@@ -227,7 +261,28 @@ class RerankerManager:
             final_score = 0.85 * cross_prob + 0.15 * rrf_norm
 
             # Lexical & Brand entity confirmation
-            cand_content = (cand.get("chunk_text", "") + " " + cand.get("filename", "") + " " + cand.get("expanded_text", "")).lower()
+            cand_extra = []
+            if cand.get("topic_tags"):
+                cand_extra.extend(cand["topic_tags"])
+            if cand.get("keywords"):
+                cand_extra.extend(cand["keywords"])
+            if cand.get("figure_data") and isinstance(cand["figure_data"], dict):
+                cand_extra.append(cand["figure_data"].get("caption", ""))
+                cand_extra.append(cand["figure_data"].get("visual_description", ""))
+            if cand.get("figures") and isinstance(cand["figures"], list):
+                for f in cand["figures"]:
+                    if isinstance(f, dict):
+                        cand_extra.append(f.get("caption", ""))
+                        cand_extra.append(f.get("visual_description", ""))
+
+            cand_content = (
+                cand.get("chunk_text", "") + " " +
+                cand.get("filename", "") + " " +
+                cand.get("expanded_text", "") + " " +
+                " ".join(filter(None, cand_extra))
+            ).lower()
+            for uk, us in SPELLING_VARIANTS.items():
+                cand_content = cand_content.replace(uk, us)
             cand_compact = re.sub(r"[\s\-_]+", "", cand_content)
 
             brand_matched = False
@@ -241,7 +296,8 @@ class RerankerManager:
                 final_score = max(final_score, 0.95)
             else:
                 query_keywords = [
-                    w.lower() for w in re.findall(r"\w+", query)
+                    SPELLING_VARIANTS.get(w.lower(), w.lower())
+                    for w in re.findall(r"\w+", query)
                     if len(w) > 3 and w.lower() not in {"need", "want", "find", "show", "give", "file", "document", "photo", "image", "related"}
                 ]
                 if query_keywords:

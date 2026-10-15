@@ -9,8 +9,15 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import re
 import logging
+import hashlib
+import shutil
 
 logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+FIGURES_DIR = BASE_DIR / "uploads" / "figures"
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
 
 CODE_EXTENSIONS_MAP: Dict[str, str] = {
     ".py": "Python",
@@ -63,12 +70,14 @@ DOCUMENT_EXTENSIONS = {
 
 
 def get_file_category(file_path_or_name: str) -> str:
-    """Classify file into standard category: pdf, docx, txt, code, photo, document."""
+    """Classify file into standard category: pdf, docx, presentation, txt, code, photo, document."""
     ext = Path(file_path_or_name).suffix.lower()
     if ext == ".pdf":
         return "pdf"
     if ext in {".docx", ".doc"}:
         return "docx"
+    if ext in {".pptx", ".ppt"}:
+        return "presentation"
     if ext in IMAGE_EXTENSIONS:
         return "photo"
     if ext in CODE_EXTENSIONS_MAP:
@@ -86,6 +95,8 @@ def extract_document_tree(file_path: str, original_filename: Optional[str] = Non
     """
     Extract hierarchical Document Memory Tree from uploaded file.
     Preserves document structure: sections, headings, tables, blocks, and page refs.
+    Treats embedded figures and images as first-class evidence with IEEE-style captions,
+    provenance attribution, and persistent assets.
     """
     effective_name = original_filename or Path(file_path).name
     file_ext = Path(effective_name).suffix.lower() or Path(file_path).suffix.lower()
@@ -93,17 +104,28 @@ def extract_document_tree(file_path: str, original_filename: Optional[str] = Non
     
     sections: List[Dict[str, Any]] = []
     tables: List[Dict[str, Any]] = []
+    figures: List[Dict[str, Any]] = []
     full_text = ""
     
     try:
         if file_ext == ".pdf":
-            sections, tables, full_text = _extract_pdf_tree(file_path, effective_name)
+            pdf_res = _extract_pdf_tree(file_path, effective_name)
+            if len(pdf_res) == 4:
+                sections, tables, full_text, figures = pdf_res
+            else:
+                sections, tables, full_text = pdf_res
         elif file_ext in {".docx", ".doc"}:
             sections, tables, full_text = _extract_docx_tree(file_path, effective_name)
+        elif file_ext in {".pptx", ".ppt"}:
+            sections, tables, full_text, figures = _extract_pptx_tree(file_path, effective_name)
         elif file_ext in CODE_EXTENSIONS_MAP:
             sections, full_text = _extract_code_tree(file_path, effective_name)
         elif file_ext in IMAGE_EXTENSIONS:
-            sections, full_text = _extract_image_tree(file_path, effective_name)
+            img_res = _extract_image_tree(file_path, effective_name)
+            if len(img_res) == 3:
+                sections, full_text, figures = img_res
+            else:
+                sections, full_text = img_res
         else:
             sections, full_text = _extract_text_tree(file_path, effective_name)
     except Exception as exc:
@@ -134,13 +156,16 @@ def extract_document_tree(file_path: str, original_filename: Optional[str] = Non
         "full_text": full_text,
         "sections": sections,
         "tables": tables,
+        "figures": figures,
         "metadata": {
             "char_count": len(full_text),
             "word_count": len(full_text.split()),
             "section_count": len(sections),
             "table_count": len(tables),
+            "figure_count": len(figures),
         }
     }
+
 
 
 def extract_text_from_upload(file_path: str, original_filename: Optional[str] = None) -> str:
@@ -280,30 +305,205 @@ def _extract_pdf_pure_fallback(file_path: str, filename: str) -> tuple[List[Dict
         return [], [], f"[PDF Document: {filename}]"
 
 
-def _extract_pdf_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], str]:
-    """Parse PDF into pages, headings, and sections with PyMuPDF, falling back to pure-Python stream parser."""
+def _extract_pdf_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], str, List[Dict[str, Any]]]:
+    """
+    Parse PDF into pages, headings, sections, and embedded visual images/diagrams with PyMuPDF.
+    Extracts embedded figures as first-class visual evidence with IEEE-style captions,
+    bounding box coordinates, MD5 deduplication, and visual semantics.
+    """
     sections: List[Dict[str, Any]] = []
+    figures: List[Dict[str, Any]] = []
     full_text_parts = []
+    seen_image_hashes: set[str] = set()
+    doc_figure_counter = 0
+
     try:
         import fitz  # PyMuPDF
+        import tempfile
+        import os
+        import hashlib
+        from services.vision import extract_visual_semantics
+
         doc = fitz.open(file_path)
         sec_idx = 0
 
         for page_num, page in enumerate(doc):
             page_text = str(page.get_text() or "")
-            
-            # If page text is very sparse (scanned diagram, slide, or image), perform OCR
-            if len(page_text.strip()) < 40:
+            blocks = page.get_text("blocks")
+            image_descriptions: List[str] = []
+
+            # 1. Extract, deduplicate, and analyze embedded figures/diagrams on this page
+            try:
+                page_images = page.get_images(full=True)
+                if page_images:
+                    for img_idx, img_info in enumerate(page_images[:8]):  # Process up to 8 figures/page
+                        xref = img_info[0]
+                        try:
+                            base_img = doc.extract_image(xref)
+                            if not base_img:
+                                continue
+                            w = base_img.get("width", 0)
+                            h = base_img.get("height", 0)
+                            # Ignore tiny icons, bullets, spacers, and 1-pixel borders
+                            if w < 80 or h < 80 or (w > 0 and h > 0 and (w / h > 15 or h / w > 15)):
+                                continue
+
+                            img_bytes = base_img.get("image")
+                            if not img_bytes:
+                                continue
+                            img_ext = base_img.get("ext", "png").lower()
+                            if img_ext == "jpeg":
+                                img_ext = "jpg"
+
+                            file_hash = hashlib.md5(img_bytes).hexdigest()
+                            if file_hash in seen_image_hashes:
+                                # Suppress repeated logos/headers across pages
+                                continue
+                            seen_image_hashes.add(file_hash)
+
+                            rects = page.get_image_rects(xref)
+                            rect = rects[0] if rects else None
+
+                            # Suppress header/footer banners and small logos
+                            if rect and h < 220 and (rect.y1 < 100 or rect.y0 > page.rect.height - 80):
+                                continue
+
+                            doc_figure_counter += 1
+
+                            # Save persistent figure asset
+                            safe_stem = re.sub(r"[^\w\-]", "_", Path(filename).stem)[:40]
+                            saved_fig_filename = f"{safe_stem}_p{page_num + 1}_fig{doc_figure_counter}_{file_hash[:8]}.{img_ext}"
+                            saved_fig_path = FIGURES_DIR / saved_fig_filename
+                            try:
+                                with open(saved_fig_path, "wb") as f:
+                                    f.write(img_bytes)
+                            except Exception as save_err:
+                                logger.warning(f"[PDF] Could not write figure asset {saved_fig_filename}: {save_err}")
+
+                            # Spatial caption extraction (scan blocks below and above image bbox)
+                            caption_text = ""
+                            detected_label = ""
+                            if rect:
+                                # Primary: IEEE style caption immediately BELOW the image
+                                for b in blocks:
+                                    if b[1] >= rect.y1 - 15 and b[1] <= rect.y1 + 140:
+                                        btext = b[4].strip()
+                                        if any(skip_word in btext for skip_word in ["Dayananda Sagar", "School of Engineering", "Department of"]):
+                                            continue
+                                        m = re.search(r"(?:Fig(?:ure)?\.?\s*(\d+[A-Za-z0-9\.\-]*))(?:\s*[:\.\-]\s*|\s+)(.*)", btext, re.IGNORECASE)
+                                        if m:
+                                            detected_label = f"Fig. {m.group(1).rstrip('.')}"
+                                            caption_text = m.group(2).strip() or btext
+                                            break
+                                        elif not caption_text and 5 < len(btext) < 300:
+                                            caption_text = btext
+
+                                # Secondary: Check title directly ABOVE the image
+                                if not caption_text:
+                                    for b in blocks:
+                                        if b[3] <= rect.y0 + 10 and b[3] >= rect.y0 - 90:
+                                            btext = b[4].strip()
+                                            if any(skip_word in btext for skip_word in ["Dayananda Sagar", "School of Engineering", "Department of"]):
+                                                continue
+                                            m = re.search(r"(?:Fig(?:ure)?\.?\s*(\d+[A-Za-z0-9\.\-]*))(?:\s*[:\.\-]\s*|\s+)(.*)", btext, re.IGNORECASE)
+                                            if m:
+                                                detected_label = f"Fig. {m.group(1).rstrip('.')}"
+                                                caption_text = m.group(2).strip() or btext
+                                                break
+                                            elif not caption_text and 5 < len(btext) < 180:
+                                                caption_text = btext
+
+                            figure_label = detected_label or f"Fig. {doc_figure_counter}"
+                            if not caption_text:
+                                caption_text = f"Visual diagram / embedded figure on Page {page_num + 1} of {filename}"
+
+                            # Run OCR & Visual Semantics (scene understanding)
+                            vis_text = ""
+                            ocr_text = ""
+                            try:
+                                vis_text = extract_visual_semantics(
+                                    str(saved_fig_path),
+                                    original_filename=f"{filename}_{figure_label}.{img_ext}"
+                                )
+                                if "--- VISUAL TEXT & LABELS EXTRACTED FROM IMAGE (OCR) ---" in vis_text:
+                                    parts = vis_text.split("--- VISUAL TEXT & LABELS EXTRACTED FROM IMAGE (OCR) ---")
+                                    ocr_text = parts[1].split("---")[0].strip()
+                            except Exception as vis_err:
+                                logger.debug(f"[PDF] Visual semantics error for {figure_label}: {vis_err}")
+
+                            colorspace = base_img.get("colorspace", 3)
+                            color_mode = "grayscale" if colorspace == 1 else "color"
+
+                            figure_obj = {
+                                "figure_id": f"fig_{file_hash[:12]}",
+                                "figure_label": figure_label,
+                                "page": page_num + 1,
+                                "caption": caption_text,
+                                "ocr_text": ocr_text,
+                                "visual_description": vis_text,
+                                "combined_caption": f"{figure_label}: {caption_text}" if caption_text else figure_label,
+                                "bbox": [round(rect.x0, 1), round(rect.y0, 1), round(rect.x1, 1), round(rect.y1, 1)] if rect else None,
+                                "width": w,
+                                "height": h,
+                                "color_mode": color_mode,
+                                "mime_type": f"image/{img_ext}",
+                                "file_hash": file_hash,
+                                "image_path": str(saved_fig_path),
+                                "image_url": f"/figures/{saved_fig_filename}",
+                                "provenance": f"{filename}, p. {page_num + 1}, {figure_label}",
+                            }
+                            figures.append(figure_obj)
+
+                            desc_line = f"[{figure_label} on Page {page_num + 1} ({w}x{h} px)]:\nCaption: {caption_text}\n{vis_text.strip()}"
+                            image_descriptions.append(desc_line)
+
+                            # Create dedicated Figure evidence section in the Document Memory Tree
+                            fig_sec_text = (
+                                f"[{figure_label} Evidence - Page {page_num + 1} of {filename}]: {caption_text}\n"
+                                f"Provenance: {filename}, Page {page_num + 1}, {figure_label}\n"
+                                f"{vis_text}"
+                            ).strip()
+
+                            sections.append({
+                                "section_id": f"sec_fig_{figure_obj['figure_id']}",
+                                "title": f"{figure_label} on Page {page_num + 1}: {caption_text[:60]}",
+                                "section_path": [filename, f"Page {page_num + 1}", figure_label],
+                                "text": fig_sec_text,
+                                "page": page_num + 1,
+                                "is_figure": True,
+                                "figure_data": figure_obj,
+                            })
+                            sec_idx += 1
+
+                        except Exception as inner_e:
+                            logger.debug(f"[PDF] Image {img_idx} extraction error on p{page_num+1}: {inner_e}")
+            except Exception as img_err:
+                logger.debug(f"[PDF] get_images error on p{page_num+1}: {img_err}")
+
+            # 2. If page text is very sparse and no embedded images were extracted, OCR the full rendered page
+            if len(page_text.strip()) < 50 and not image_descriptions:
                 try:
-                    import pytesseract
-                    from PIL import Image
                     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                    ocr_p_text = str(pytesseract.image_to_string(img) or "")
-                    if len(ocr_p_text.strip()) > len(page_text.strip()):
-                        page_text = ocr_p_text
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
+                        pix.save(tmp_f.name)
+                        tmp_path = tmp_f.name
+                    try:
+                        page_ocr_text = extract_visual_semantics(
+                            tmp_path,
+                            original_filename=f"{filename}_page_{page_num+1}.png"
+                        )
+                        if len(page_ocr_text.strip()) > len(page_text.strip()):
+                            page_text = page_ocr_text
+                    finally:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
                 except Exception as err:
-                    logger.debug(f"[PDF] Page {page_num + 1} OCR fallback error: {err}")
+                    logger.debug(f"[PDF] Page {page_num + 1} full-page OCR error: {err}")
+
+            # 3. Append image descriptions to page text
+            if image_descriptions:
+                images_block = "\n\n".join(image_descriptions)
+                page_text = f"{page_text}\n\n{images_block}".strip() if page_text.strip() else images_block
 
             full_text_parts.append(page_text)
             
@@ -346,7 +546,6 @@ def _extract_pdf_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any
                     })
                     sec_idx += 1
             elif page_text.strip():
-                # If blocks empty but page_text from OCR exists, register section
                 sections.append({
                     "section_id": f"sec_{sec_idx}",
                     "title": current_title,
@@ -368,10 +567,12 @@ def _extract_pdf_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any
                     "text": full_text.strip(),
                     "page": 1
                 })
-        return sections, [], full_text
+        return sections, [], full_text, figures
     except Exception as e:
         logger.warning(f"[PDF] Structured PyMuPDF extraction unavailable or failed ({e}), using pure-python stream fallback")
-        return _extract_pdf_pure_fallback(file_path, filename)
+        fb_sec, fb_tbl, fb_txt = _extract_pdf_pure_fallback(file_path, filename)
+        return fb_sec, fb_tbl, fb_txt, []
+
 
 
 def _extract_docx_fallback(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], str]:
@@ -590,17 +791,159 @@ def _extract_code_tree(file_path: str, filename: str) -> tuple[List[Dict[str, An
     return sections, code_text
 
 
-def _extract_image_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], str]:
-    """Parse images with vision metadata and OCR text into structured sections."""
-    img_text = extract_image(file_path, original_filename=filename)
+def _extract_pptx_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], str, List[Dict[str, Any]]]:
+    """Parse PPTX presentation slides, notes, and embedded visual media into structured sections and figure evidence."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    sections: List[Dict[str, Any]] = []
+    tables: List[Dict[str, Any]] = []
+    figures: List[Dict[str, Any]] = []
+    full_text_lines: List[str] = []
+
+    try:
+        from services.vision import analyze_image_full
+
+        with zipfile.ZipFile(file_path, "r") as z:
+            # 1. Extract embedded visual media files (images, diagrams, charts)
+            media_files = [f for f in z.namelist() if f.startswith("ppt/media/")]
+            for mfile in media_files:
+                try:
+                    mdata = z.read(mfile)
+                    mhash = hashlib.md5(mdata).hexdigest()
+                    mext = Path(mfile).suffix.lower().lstrip(".") or "png"
+                    mstem = re.sub(r"[^\w\-]", "_", Path(filename).stem)[:30]
+                    mname = f"{mstem}_media_{mhash[:8]}.{mext}"
+                    mpath = FIGURES_DIR / mname
+                    if not mpath.exists():
+                        with open(mpath, "wb") as mf:
+                            mf.write(mdata)
+
+                    analysis = analyze_image_full(str(mpath), original_filename=Path(mfile).name)
+                    fig_obj = {
+                        "figure_id": f"fig_{mhash[:12]}",
+                        "figure_label": f"Media {len(figures) + 1}",
+                        "page": 1,
+                        "caption": f"Embedded visual asset in {filename}",
+                        "ocr_text": analysis.get("ocr_text", ""),
+                        "visual_description": analysis.get("scene_description", ""),
+                        "scene_description": analysis.get("scene_description", ""),
+                        "swatches": analysis.get("swatches", []),
+                        "dominant_colors": analysis.get("dominant_colors", []),
+                        "visual_tags": analysis.get("visual_tags", []),
+                        "width": analysis.get("width", 0),
+                        "height": analysis.get("height", 0),
+                        "color_mode": analysis.get("color_mode", "color"),
+                        "mime_type": f"image/{mext}",
+                        "file_hash": mhash,
+                        "image_path": str(mpath),
+                        "image_url": f"/figures/{mname}",
+                        "provenance": f"{filename}, Media {len(figures) + 1}",
+                    }
+                    figures.append(fig_obj)
+                except Exception as me:
+                    logger.debug(f"[PPTX] Media extraction error for {mfile}: {me}")
+
+            # 2. Extract slides in numerical order
+            slide_files = sorted(
+                [f for f in z.namelist() if f.startswith("ppt/slides/slide") and f.endswith(".xml")],
+                key=lambda x: int("".join(filter(str.isdigit, x)) or 0)
+            )
+
+            for idx, sfile in enumerate(slide_files, start=1):
+                sxml = z.read(sfile)
+                root = ET.fromstring(sxml)
+                texts = [node.text.strip() for node in root.iter() if node.tag.endswith("}t") and node.text and node.text.strip()]
+                slide_text = "\n".join(texts)
+                if not slide_text:
+                    continue
+
+                full_text_lines.append(f"--- Slide {idx} ---")
+                full_text_lines.append(slide_text)
+
+                slide_title = texts[0] if texts else f"Slide {idx}"
+                if len(slide_title) > 60:
+                    slide_title = slide_title[:60] + "..."
+
+                sec_obj = {
+                    "section_id": f"sec_slide_{idx}",
+                    "title": f"Slide {idx}: {slide_title}",
+                    "section_path": [filename, f"Slide {idx}"],
+                    "text": slide_text,
+                    "page": idx,
+                    "is_figure": False,
+                }
+                sections.append(sec_obj)
+
+    except Exception as e:
+        logger.error(f"[PPTX] Error parsing presentation {filename}: {e}")
+
+    full_text = "\n\n".join(full_text_lines)
+    return sections, tables, full_text, figures
+
+
+def _extract_image_tree(file_path: str, filename: str) -> tuple[List[Dict[str, Any]], str, List[Dict[str, Any]]]:
+    """Parse images with vision metadata, OCR text, and color palettes into structured sections and first-class figure evidence."""
+    from services.vision import analyze_image_full
+
+    analysis = analyze_image_full(file_path, original_filename=filename)
+    img_text = analysis["full_semantics"]
+    figures: List[Dict[str, Any]] = []
+
+    try:
+        with open(file_path, "rb") as f:
+            content = f.read()
+        fhash = hashlib.md5(content).hexdigest()
+        ext = Path(filename).suffix.lower().lstrip(".") or "png"
+        safe_stem = re.sub(r"[^\w\-]", "_", Path(filename).stem)[:40]
+        saved_fig_filename = f"{safe_stem}_{fhash[:8]}.{ext}"
+        saved_fig_path = FIGURES_DIR / saved_fig_filename
+        if not saved_fig_path.exists():
+            shutil.copy2(file_path, saved_fig_path)
+
+        caption = Path(filename).stem.replace("_", " ").replace("-", " ").title()
+        if analysis.get("visual_tags"):
+            main_tags = [t for t in analysis["visual_tags"] if t != "Image Asset"]
+            if main_tags:
+                caption = f"{main_tags[0]}: {caption}"
+
+        fig_obj = {
+            "figure_id": f"fig_{fhash[:12]}",
+            "figure_label": "Fig. 1",
+            "page": 1,
+            "caption": caption,
+            "ocr_text": analysis.get("ocr_text", ""),
+            "visual_description": analysis.get("scene_description", img_text),
+            "scene_description": analysis.get("scene_description", ""),
+            "swatches": analysis.get("swatches", []),
+            "dominant_colors": analysis.get("dominant_colors", []),
+            "visual_tags": analysis.get("visual_tags", []),
+            "combined_caption": f"Fig. 1: {caption}",
+            "bbox": None,
+            "width": analysis.get("width", 0),
+            "height": analysis.get("height", 0),
+            "color_mode": analysis.get("color_mode", "color"),
+            "mime_type": f"image/{ext}",
+            "file_hash": fhash,
+            "image_path": str(saved_fig_path),
+            "image_url": f"/figures/{saved_fig_filename}",
+            "provenance": f"{filename}, p. 1, Fig. 1",
+        }
+        figures.append(fig_obj)
+    except Exception as e:
+        logger.debug(f"[Extraction] Standalone image figure creation error: {e}")
+
     section = {
         "section_id": "sec_img_0",
         "title": "Visual Analysis & Scene Description",
         "section_path": [filename, "Visual Semantics"],
         "text": img_text,
-        "page": 1
+        "page": 1,
+        "is_figure": True,
+        "figure_data": figures[0] if figures else None,
     }
-    return [section], img_text
+    return [section], img_text, figures
+
 
 
 # ---------------------------------------------------------------------------

@@ -661,6 +661,8 @@ def generate_embeddings(
                 sec_title = sec.get("title", "Section")
                 sec_path = sec.get("section_path", [doc_title, sec_title])
                 sec_page = sec.get("page", 1)
+                is_fig = sec.get("is_figure", False)
+                fig_data = sec.get("figure_data")
 
                 if not sec_text:
                     continue
@@ -672,6 +674,8 @@ def generate_embeddings(
                         "section_title": sec_title,
                         "section_path": sec_path,
                         "page": sec_page,
+                        "is_figure": is_fig,
+                        "figure_data": fig_data,
                     })
         else:
             # Fallback to standard chunking
@@ -682,6 +686,8 @@ def generate_embeddings(
                     "section_title": "General",
                     "section_path": [doc_title],
                     "page": 1,
+                    "is_figure": False,
+                    "figure_data": None,
                 })
 
         if not raw_units:
@@ -692,6 +698,7 @@ def generate_embeddings(
                 "document_keywords": [],
                 "document_sparse_vector": {"indices": [], "values": []},
                 "document_embedding": [],
+                "figures": text_content.get("figures", []) if isinstance(text_content, dict) else [],
             }
 
         # Build context-enriched embedding text for each chunk
@@ -701,10 +708,11 @@ def generate_embeddings(
 
         for idx, unit in enumerate(raw_units):
             path_str = " > ".join(unit["section_path"])
+            fig_prefix = "[EVIDENCE: Figure / Diagram] " if unit.get("is_figure") else ""
             enriched = (
                 f"[DOCUMENT: {doc_title} | CATEGORY: {doc_category}]\n"
                 f"[SECTION: {path_str} | CHUNK {idx + 1}/{total_chunks}]\n"
-                f"{unit['raw_text']}"
+                f"{fig_prefix}{unit['raw_text']}"
             )
             enriched_texts.append(enriched)
 
@@ -727,12 +735,15 @@ def generate_embeddings(
                 "page": unit.get("page", 1),
                 "prev_chunk_index": prev_idx,
                 "next_chunk_index": next_idx,
-                "unit_type": "chunk",
+                "unit_type": "figure" if unit.get("is_figure") else "chunk",
+                "is_figure": bool(unit.get("is_figure")),
+                "figure_data": unit.get("figure_data"),
                 "embedding": embedding.tolist(),
                 "dense_vector": embedding.tolist(),
                 "keywords": extract_keywords(enriched, max_keywords=10),
                 "sparse_vector": build_sparse_vector(enriched),
             })
+
 
         # Generate Document Summary Node
         document_keywords = extract_keywords(normalized_text, max_keywords=MAX_KEYWORDS)
@@ -780,7 +791,9 @@ def generate_embeddings(
             "document_embedding": document_vector.astype(np.float32).tolist(),
             "document_keywords": document_keywords,
             "document_sparse_vector": document_sparse,
+            "figures": text_content.get("figures", []) if isinstance(text_content, dict) else [],
         }
+
 
     except Exception as exc:
         logger.exception("[Embeddings] Generation failed: %s", exc)

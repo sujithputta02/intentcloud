@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
-import { Plus, X, Bell, Search, FileText, Download, Trash2, Folder, UploadCloud, Code2, Image as ImageIcon, Eye, Monitor, FolderTree } from "lucide-react";
+import { Plus, X, Bell, Search, FileText, Download, Trash2, Folder, UploadCloud, Code2, Image as ImageIcon, Eye, Monitor, FolderTree, Check, Palette, Sparkles, Copy } from "lucide-react";
 import { getAllTopicDefinitions, getFileCategory, classifyFile, countFilesByTopic } from "@/lib/topics";
 import { API_URL } from "@/lib/api";
 import FilePreviewModal, { PreviewableFile } from "@/components/FilePreviewModal";
 import MacFinder from "@/components/MacFinder";
+import HardwareOledPipeline from "@/components/HardwareOledPipeline";
 
 interface UploadedFile {
   file_id: string;
@@ -37,6 +38,21 @@ interface SearchResult {
   rank: number;
   explanation: string;
   relevance_percentage: number;
+  figures?: Array<{
+    figure_id: string;
+    figure_label: string;
+    page: number;
+    caption: string;
+    image_url: string;
+    thumbnail_url?: string;
+    provenance: string;
+    relevance_score?: number;
+    scene_description?: string;
+    visual_description?: string;
+    swatches?: Array<{ name: string; hex: string; rgb?: number[] }>;
+    dominant_colors?: string[];
+    ocr_text?: string;
+  }>;
 }
 
 interface SearchResponse {
@@ -46,6 +62,20 @@ interface SearchResponse {
   confidence_message: string;
   results: SearchResult[];
   count: number;
+  metrics?: {
+    latency_ms?: number;
+    device?: string;
+    dense_candidates?: number;
+    sparse_candidates?: number;
+    fused_candidates?: number;
+    reranked_count?: number;
+  };
+  parsed_intent?: {
+    topic?: string;
+    keywords?: string[];
+    intent_type?: string;
+    confidence?: number;
+  };
 }
 
 interface TopicCluster {
@@ -72,6 +102,8 @@ export default function Home() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<PreviewableFile | null>(null);
+  const [copiedHex, setCopiedHex] = useState<string | null>(null);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stateRef = useRef({ searchResults, uploadModalOpen, previewFile });
   stateRef.current = { searchResults, uploadModalOpen, previewFile };
@@ -308,17 +340,41 @@ export default function Home() {
   const hasTxt = files.some((f) => getFileCategory(f.name, f.extension) === "txt");
   const hasCode = files.some((f) => getFileCategory(f.name, f.extension) === "code");
   const hasPhotos = files.some((f) => getFileCategory(f.name, f.extension) === "photo");
+  const hasDocs = files.some((f) => getFileCategory(f.name, f.extension) === "document");
 
   if (hasPdf) availableFilterPills.push("PDF");
   if (hasDocx) availableFilterPills.push("DOCX");
   if (hasTxt) availableFilterPills.push("TXT");
   if (hasCode) availableFilterPills.push("Code");
   if (hasPhotos) availableFilterPills.push("Photos");
+  if (hasDocs) availableFilterPills.push("Docs");
 
   // If no files yet, show standard starter pills
   if (availableFilterPills.length === 1) {
     availableFilterPills.push("PDF", "DOCX", "Code", "Photos");
   }
+
+  const getPillCount = (pill: string) => {
+    if (pill === "All files") {
+      if (activeTopicFilter) {
+        return files.filter((f) => classifyFile(f.name, f.topic_tags ?? [], f.extension) === activeTopicFilter).length;
+      }
+      return files.length;
+    }
+    return files.filter((f) => {
+      if (activeTopicFilter && classifyFile(f.name, f.topic_tags ?? [], f.extension) !== activeTopicFilter) {
+        return false;
+      }
+      const cat = getFileCategory(f.name, f.extension);
+      if (pill === "PDF") return cat === "pdf";
+      if (pill === "DOCX") return cat === "docx";
+      if (pill === "TXT") return cat === "txt";
+      if (pill === "Code") return cat === "code";
+      if (pill === "Photos") return cat === "photo";
+      if (pill === "Docs") return cat === "document";
+      return false;
+    }).length;
+  };
 
   const displayFiles = files.filter((f) => {
     const cat = getFileCategory(f.name, f.extension);
@@ -334,8 +390,33 @@ export default function Home() {
     if (activeFilter === "TXT") return cat === "txt";
     if (activeFilter === "Code") return cat === "code";
     if (activeFilter === "Photos") return cat === "photo";
+    if (activeFilter === "Docs") return cat === "document";
     return true;
   });
+
+  const toggleSelectFile = (fileId: string) => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedFileIds.size === displayFiles.length) {
+      setSelectedFileIds(new Set());
+    } else {
+      setSelectedFileIds(new Set(displayFiles.map((f) => f.file_id)));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedFileIds(new Set());
+  };
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] px-4 sm:px-6 lg:px-8 py-8">
@@ -560,31 +641,64 @@ export default function Home() {
                 </div>
               </form>
 
+              {/* Real-time Hardware OLED & Cognitive Pipeline Screen */}
+              <HardwareOledPipeline
+                isSearching={isSearching}
+                query={searchQuery}
+                searchMode="hybrid"
+                topResult={searchResults?.results?.[0] || null}
+                metrics={searchResults?.metrics || null}
+                parsedIntent={searchResults?.parsed_intent || null}
+              />
+
           {/* Dynamic Filter Pills */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-              {availableFilterPills.map((pill) => (
-                <button
-                  key={pill}
-                  type="button"
-                  onClick={() => {
-                    setActiveFilter(pill);
-                    setSearchResults(null);
-                    setActiveTopicFilter(null);
-                  }}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition select-none ${
-                    activeFilter === pill
-                      ? "bg-[var(--text-primary)] text-[var(--bg-surface)] font-semibold shadow-sm"
-                      : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
-                  }`}
-                >
-                  {pill}
-                </button>
-              ))}
+              {availableFilterPills.map((pill) => {
+                const count = getPillCount(pill);
+                const isSelected = activeFilter === pill;
+                return (
+                  <button
+                    key={pill}
+                    type="button"
+                    onClick={() => {
+                      setActiveFilter(pill);
+                      setSearchResults(null);
+                      setActiveTopicFilter(null);
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition select-none flex items-center gap-2 ${
+                      isSelected
+                        ? "bg-[var(--text-primary)] text-[var(--bg-surface)] font-semibold shadow-sm"
+                        : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
+                    }`}
+                  >
+                    <span>{pill}</span>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-mono font-medium transition ${
+                        isSelected
+                          ? "bg-black/15 dark:bg-white/20 text-current"
+                          : "bg-[var(--bg-base)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-3 py-2 rounded-full">
-              <span>{files.length} items total</span>
+            <div className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-3.5 py-1.5 rounded-full">
+              {selectedFileIds.size > 0 ? (
+                <span>
+                  <strong className="text-[var(--accent)] font-bold">{selectedFileIds.size}</strong> selected
+                </span>
+              ) : activeFilter === "All files" && !activeTopicFilter ? (
+                <span>{files.length} items total</span>
+              ) : (
+                <span>
+                  Showing <strong className="text-[var(--text-primary)] font-semibold">{displayFiles.length}</strong> of {files.length} items
+                </span>
+              )}
             </div>
           </div>
 
@@ -640,6 +754,131 @@ export default function Home() {
                         "{res.sentence_text}"
                       </div>
 
+                      {res.figures && res.figures.length > 0 && (
+                        <div className="space-y-3 p-3 rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)]">
+                          {res.figures.map((fig, fIdx) => {
+                            const imgUrl = fig.image_url.startsWith("http") ? fig.image_url : `${API_URL}${fig.image_url}`;
+                            const sceneDesc = fig.scene_description || fig.visual_description;
+                            const swatches = fig.swatches || [];
+
+                            return (
+                              <div key={fig.figure_id || fIdx} className="space-y-2.5">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                  {/* Color image thumbnail preview with click-to-preview */}
+                                  <div
+                                    onClick={() => {
+                                      const match = files.find((f) => f.file_id === res.file_id);
+                                      setPreviewFile({
+                                        file_id: res.file_id,
+                                        name: res.filename,
+                                        size_bytes: match?.size_bytes || 0,
+                                        extension: res.filename.split(".").pop() || "",
+                                        topic_tags: match?.topic_tags,
+                                        modified: match?.modified
+                                      });
+                                    }}
+                                    className="w-full sm:w-28 h-24 rounded-lg overflow-hidden shrink-0 bg-black/5 dark:bg-white/5 border border-[var(--border-subtle)] flex items-center justify-center cursor-pointer hover:border-[var(--accent)] hover:shadow-md transition group relative"
+                                    title="Click to inspect in Visual Intelligence"
+                                  >
+                                    <img
+                                      src={imgUrl}
+                                      alt={fig.caption || fig.figure_label}
+                                      className="w-full h-full object-contain transition duration-200 group-hover:scale-105"
+                                      loading="lazy"
+                                    />
+                                    <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <span className="text-[10px] font-semibold text-white bg-black/75 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                                        <Eye className="w-3 h-3" /> Inspect
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Metadata and Caption */}
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap font-mono">
+                                      <span className="px-1.5 py-0.5 rounded bg-black/80 dark:bg-white/20 text-white text-[9px] font-bold">
+                                        {fig.figure_label}
+                                      </span>
+                                      <span className="text-[10px] text-[var(--text-secondary)]">p. {fig.page}</span>
+                                      {fig.relevance_score && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                                          {Math.round(fig.relevance_score <= 1.0 ? fig.relevance_score * 100 : fig.relevance_score)}% match
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-[var(--text-primary)] font-semibold leading-snug">
+                                      {fig.caption || "Visual asset evidence"}
+                                    </p>
+                                    <p className="text-[10px] text-[var(--text-secondary)] font-mono">
+                                      {fig.provenance}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Detailed Visual Scene Description */}
+                                {sceneDesc && (
+                                  <div className="p-2.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1">
+                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">
+                                      <Sparkles className="w-3 h-3" />
+                                      <span>Visual Scene Understanding</span>
+                                    </div>
+                                    <p className="text-[11px] text-[var(--text-primary)] leading-relaxed">
+                                      {sceneDesc}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* Color Palette Swatches */}
+                                {swatches.length > 0 && (
+                                  <div className="space-y-1.5 pt-1">
+                                    <div className="flex items-center justify-between text-[10px]">
+                                      <span className="font-bold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-1">
+                                        <Palette className="w-3 h-3 text-[var(--accent)]" />
+                                        Detected Palette Swatches ({swatches.length})
+                                      </span>
+                                      <span className="text-[var(--text-muted)] text-[9px]">Click swatch to copy hex</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {swatches.map((swatch, sIdx) => {
+                                        const isCopied = copiedHex === swatch.hex;
+                                        return (
+                                          <button
+                                            key={sIdx}
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              navigator.clipboard.writeText(swatch.hex);
+                                              setCopiedHex(swatch.hex);
+                                              setTimeout(() => setCopiedHex(null), 1800);
+                                            }}
+                                            className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--accent)] text-[10px] transition group shadow-xs cursor-pointer"
+                                            title={`Click to copy ${swatch.hex}`}
+                                          >
+                                            <span
+                                              className="w-3 h-3 rounded-full shrink-0 border border-black/15 dark:border-white/20 shadow-xs"
+                                              style={{ backgroundColor: swatch.hex }}
+                                            />
+                                            <span className="font-medium text-[var(--text-primary)]">{swatch.name}</span>
+                                            <span className="font-mono text-[9px] text-[var(--text-secondary)] opacity-80">
+                                              {swatch.hex}
+                                            </span>
+                                            {isCopied ? (
+                                              <Check className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                                            ) : (
+                                              <Copy className="w-2.5 h-2.5 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition shrink-0" />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs gap-2">
                         <span className="text-[var(--text-secondary)] truncate">
                           {res.explanation}
@@ -689,21 +928,72 @@ export default function Home() {
           ) : (
             /* Real Files Grid */
             <div>
-              {activeTopicFilter && (
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-semibold text-[var(--text-secondary)]">
-                    Showing {displayFiles.length} file{displayFiles.length === 1 ? "" : "s"} in{" "}
-                    {activeTopicFilter}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTopicFilter(null)}
-                    className="text-xs text-[var(--accent)] hover:underline"
-                  >
-                    Clear topic filter
-                  </button>
+              {/* Multi-Selection Action Toolbar */}
+              {selectedFileIds.size > 0 && (
+                <div className="flex items-center justify-between gap-4 p-3 px-4 rounded-2xl bg-[var(--text-primary)] text-[var(--bg-surface)] shadow-lg animate-in fade-in slide-in-from-top-2 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-5 h-5 rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-[10px] font-bold">
+                      ✓
+                    </div>
+                    <span className="text-xs sm:text-sm font-semibold">
+                      {selectedFileIds.size} file{selectedFileIds.size > 1 ? "s" : ""} selected
+                    </span>
+                    <span className="text-xs opacity-75 hidden sm:inline">
+                      ({displayFiles.length} visible in filter)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAll}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 hover:bg-white/25 transition"
+                    >
+                      {selectedFileIds.size === displayFiles.length ? "Deselect All" : `Select All (${displayFiles.length})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearSelection}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/20 transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
               )}
+
+              {/* Grid Section Header with Exact Count */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    {activeTopicFilter ? (
+                      <>
+                        Topic: <span className="text-[var(--accent)] font-bold">{activeTopicFilter}</span>
+                      </>
+                    ) : activeFilter !== "All files" ? (
+                      <>{activeFilter} Documents</>
+                    ) : (
+                      <>All Documents</>
+                    )}
+                  </span>
+                  <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                    {displayFiles.length} {displayFiles.length === 1 ? "file" : "files"}
+                  </span>
+                </div>
+
+                {(activeFilter !== "All files" || activeTopicFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveFilter("All files");
+                      setActiveTopicFilter(null);
+                    }}
+                    className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1"
+                  >
+                    Reset filter ({files.length} total)
+                  </button>
+                )}
+              </div>
               {loading ? (
                 <div className="text-center py-20 text-sm text-[var(--text-secondary)]">
                   Loading files from memory...
@@ -718,12 +1008,35 @@ export default function Home() {
                     const isCode = cat === "code";
                     const isPhoto = cat === "photo";
 
+                    const isSelected = selectedFileIds.has(file.file_id);
+
                     return (
                       <div
                         key={file.file_id}
-                        className="p-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-between gap-4 group"
+                        onClick={() => toggleSelectFile(file.file_id)}
+                        className={`p-4 rounded-2xl bg-[var(--bg-surface)] border shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-between gap-4 group cursor-pointer ${
+                          isSelected
+                            ? "border-[var(--accent)] ring-1 ring-[var(--accent)] bg-[var(--accent)]/[0.04]"
+                            : "border-[var(--border-subtle)]"
+                        }`}
                       >
                         <div className="flex items-center gap-3.5 min-w-0">
+                          {/* Selection Checkbox */}
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSelectFile(file.file_id);
+                            }}
+                            className={`w-5 h-5 rounded-md border flex items-center justify-center transition shrink-0 ${
+                              isSelected
+                                ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-xs"
+                                : "border-[var(--border-subtle)] bg-[var(--bg-base)] text-transparent group-hover:border-[var(--accent)]/50"
+                            }`}
+                            title={isSelected ? "Deselect file" : "Select file"}
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                          </div>
+
                           {/* 3D Squircle Icon */}
                           <div
                             className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 p-3 shadow-sm ${
@@ -771,7 +1084,10 @@ export default function Home() {
                         {/* Actions: Preview + Download + Delete */}
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
-                            onClick={() => setPreviewFile(file)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewFile(file);
+                            }}
                             type="button"
                             className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 flex items-center justify-center transition"
                             title={`Preview ${file.name}`}
@@ -783,6 +1099,7 @@ export default function Home() {
                             href={`${API_URL}/download/${file.file_id}`}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 flex items-center justify-center transition"
                             title={`Download ${file.name}`}
                           >
@@ -790,7 +1107,10 @@ export default function Home() {
                           </a>
 
                           <button
-                            onClick={() => handleDeleteFile(file.file_id, file.name)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteFile(file.file_id, file.name);
+                            }}
                             disabled={deletingId === file.file_id}
                             type="button"
                             className="w-8 h-8 rounded-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-red-500 hover:border-red-500/50 flex items-center justify-center transition disabled:opacity-40"
