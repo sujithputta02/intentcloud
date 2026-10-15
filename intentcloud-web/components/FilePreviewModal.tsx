@@ -57,6 +57,8 @@ export default function FilePreviewModal({ file, onClose }: FilePreviewModalProp
     };
     window.addEventListener("keydown", handleKeyDown);
 
+    const isPdf = (file.name || "").toLowerCase().endsWith(".pdf") || file.extension?.toLowerCase() === "pdf";
+
     fetch(`${API_URL}/files/${file.file_id}/content`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load preview (${res.status})`);
@@ -66,7 +68,9 @@ export default function FilePreviewModal({ file, onClose }: FilePreviewModalProp
         setContentData(data);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load preview");
+        if (!isPdf) {
+          setError(err instanceof Error ? err.message : "Failed to load preview");
+        }
       })
       .finally(() => {
         setLoading(false);

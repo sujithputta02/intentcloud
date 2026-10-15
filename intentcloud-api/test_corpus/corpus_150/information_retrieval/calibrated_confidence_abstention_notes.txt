@@ -1,0 +1,10 @@
+# Calibrated Confidence Abstention Notes
+
+Domain: Information Retrieval
+Filename: calibrated_confidence_abstention_notes.txt
+
+## Abstract
+Operational engineering notes: Logistic sigmoid confidence gating on cross-encoder logits for out-of-domain query abstention and hallucination prevention.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

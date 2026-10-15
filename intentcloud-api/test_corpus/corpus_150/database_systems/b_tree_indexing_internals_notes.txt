@@ -1,0 +1,10 @@
+# B Tree Indexing Internals Notes
+
+Domain: Database Systems
+Filename: b_tree_indexing_internals_notes.txt
+
+## Abstract
+Operational engineering notes: B+ Tree node splitting, branch factor, disk page alignment, sibling pointers, and range scan performance.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

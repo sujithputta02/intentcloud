@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.embeddings import generate_query_representation
 from services.reranker import get_reranker, get_reranker_device, DEFAULT_CONFIDENCE_THRESHOLD
+from services.query_router import classify_query_intent
 
 logger = logging.getLogger(__name__)
 
@@ -37,41 +39,66 @@ RRF_BASELINE_MIN_SCORE = 0.20
 def reciprocal_rank_fusion(
     dense_results: List[Dict],
     sparse_results: List[Dict],
+    visual_results: Optional[List[Dict]] = None,
     k: int = RRF_K_CONSTANT,
+    weights: Optional[Dict[str, float]] = None,
 ) -> List[Dict]:
     """
-    Perform Reciprocal Rank Fusion (RRF) to merge dense and sparse candidate rankings.
+    Perform Multi-Modal Reciprocal Rank Fusion (RRF) to merge dense text, sparse keyword,
+    and visual evidence candidate rankings.
 
-    Formula (PRD §5.4):
-        score_RRF(d) = sum_{m in {dense, sparse}} (1 / (k + rank_m(d)))
+    Formula (PRD §5.4 & Multi-Modal Visual Extension):
+        score_RRF(d) = w_dense * (1 / (k + rank_dense(d)))
+                     + w_sparse * (1 / (k + rank_sparse(d)))
+                     + w_visual * (1 / (k + rank_visual(d)))
 
     Args:
         dense_results: Ordered list of dense search hits
         sparse_results: Ordered list of sparse search hits
+        visual_results: Optional ordered list of visual / figure search hits
         k: Smoothing constant (default: 60)
+        weights: Optional weighting dict with weight_dense, weight_sparse, weight_visual
 
     Returns:
         Sorted list of fused candidate documents with RRF scores
     """
+    w_dense = weights.get("weight_dense", 0.35) if weights else 0.35
+    w_sparse = weights.get("weight_sparse", 0.30) if weights else 0.30
+    w_visual = weights.get("weight_visual", 0.35) if weights else 0.35
+
     rrf_scores: Dict[str, float] = {}
     dense_ranks: Dict[str, int] = {}
     sparse_ranks: Dict[str, int] = {}
+    visual_ranks: Dict[str, int] = {}
     documents: Dict[str, Dict] = {}
 
     # Accumulate dense rankings
     for rank, item in enumerate(dense_results, start=1):
         doc_key = item.get("chunk_id") or f"{item.get('file_id')}:{item.get('chunk_index', 0)}"
-        rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + (1.0 / (k + rank))
+        rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + (w_dense / (k + rank))
         dense_ranks[doc_key] = rank
         documents[doc_key] = item
 
     # Accumulate sparse rankings
     for rank, item in enumerate(sparse_results, start=1):
         doc_key = item.get("chunk_id") or f"{item.get('file_id')}:{item.get('chunk_index', 0)}"
-        rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + (1.0 / (k + rank))
+        rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + (w_sparse / (k + rank))
         sparse_ranks[doc_key] = rank
         if doc_key not in documents:
             documents[doc_key] = item
+
+    # Accumulate visual evidence rankings
+    if visual_results:
+        for rank, item in enumerate(visual_results, start=1):
+            doc_key = item.get("chunk_id") or f"{item.get('file_id')}:{item.get('chunk_index', 0)}"
+            rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + (w_visual / (k + rank))
+            visual_ranks[doc_key] = rank
+            if doc_key not in documents:
+                documents[doc_key] = item
+            elif item.get("is_figure"):
+                documents[doc_key]["is_figure"] = True
+                if item.get("figure_data"):
+                    documents[doc_key]["figure_data"] = item["figure_data"]
 
     # Sort candidates by combined RRF score descending
     sorted_keys = sorted(rrf_scores.keys(), key=lambda key: rrf_scores[key], reverse=True)
@@ -83,12 +110,15 @@ def reciprocal_rank_fusion(
         doc["rrf_score"] = round(rrf_scores[key], 6)
         doc["dense_rank"] = dense_ranks.get(key)
         doc["sparse_rank"] = sparse_ranks.get(key)
+        if key in visual_ranks:
+            doc["visual_rank"] = visual_ranks[key]
         fused_candidates.append(doc)
 
     logger.info(
-        "[RRF] Fused %d dense + %d sparse candidates -> %d unique documents",
+        "[RRF] Fused %d dense + %d sparse + %d visual candidates -> %d unique documents",
         len(dense_results),
         len(sparse_results),
+        len(visual_results or []),
         len(fused_candidates),
     )
     return fused_candidates
@@ -107,8 +137,11 @@ def normalize_spelling(text: str) -> str:
     """Normalize common UK/US spelling variants for consistent embedding alignment."""
     if not text:
         return ""
-    words = text.split()
-    return " ".join(SPELLING_MAP.get(w.lower(), w) for w in words)
+    import re
+    result = text
+    for uk, us in SPELLING_MAP.items():
+        result = re.sub(rf"\b{re.escape(uk)}\b", us, result, flags=re.IGNORECASE)
+    return result
 
 
 def build_intent_clean_query(query: str, intent_data: Optional[Dict] = None) -> str:
@@ -134,12 +167,17 @@ def build_intent_clean_query(query: str, intent_data: Optional[Dict] = None) -> 
     ]
 
     if clean and len(clean.split()) >= 2:
+        if "service now" in clean.lower() and "servicenow" not in clean.lower():
+            clean = clean.lower().replace("service now", "servicenow")
         return clean
 
     if meaningful_kw:
         return " ".join(meaningful_kw)
 
-    return clean or normalize_spelling(query)
+    res = clean or normalize_spelling(query)
+    if "service now" in res.lower() and "servicenow" not in res.lower():
+        res = res.lower().replace("service now", "servicenow")
+    return res
 
 
 def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str:
@@ -153,6 +191,8 @@ def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str
     keywords = intent_data.get("keywords") or []
 
     parts = [clean_norm]
+    if "service now" in clean_norm.lower() and "servicenow" not in clean_norm.lower():
+        parts.append("servicenow")
     if topic and topic.lower() not in clean_norm.lower():
         parts.append(normalize_spelling(topic))
     if keywords:
@@ -160,16 +200,187 @@ def build_retrieval_query(query: str, intent_data: Optional[Dict] = None) -> str
         if kw_text and kw_text.lower() not in clean_norm.lower():
             parts.append(kw_text)
 
-    # Detect visual intent and expand with visual search terms
-    visual_terms = [
-        "color", "colour", "palette", "swatch", "hex",
-        "diagram", "topology", "architecture", "image",
-        "photo", "slide", "brand deck", "deck", "presentation"
-    ]
-    if any(v in clean_norm.lower() for v in visual_terms):
-        parts.append("visual concept image photo")
+    # Precise domain-specific visual and technical query expansion
+    lower_q = clean_norm.lower()
+    if any(v in lower_q for v in ["color", "palette", "swatch", "hex", "brand deck", "design system"]):
+        parts.append("color palette brand visual system swatches hex design")
+    elif any(v in lower_q for v in ["architecture", "topology", "schematic", "cluster", "infrastructure"]):
+        parts.append("architecture diagram topology infrastructure schematic")
+    elif any(v in lower_q for v in ["dashboard", "workspace", "console", "incident", "operations"]):
+        parts.append("operations dashboard workspace management")
+    elif any(v in lower_q for v in ["slide", "presentation", "deck", "keynote", "powerpoint"]):
+        parts.append("presentation slide brand deck")
 
     return ". ".join(parts)
+
+
+def group_and_expand_document_evidence(
+    candidates: List[Dict],
+    qdrant_manager,
+    max_files: int = 6,
+) -> List[Dict]:
+    """
+    Document-Memory Evidence Grouping & Context Window Expansion.
+    1. Groups multiple candidate chunks by document (file_id).
+    2. Identifies the primary salient chunk and all supporting evidence chunks.
+    3. Expands primary chunk context with neighboring chunks: [C_{i-1}] + [C_i] + [C_{i+1}].
+    4. Aggregates matched sections and calculates multi-chunk evidence coverage.
+    """
+    file_groups: Dict[str, List[Dict]] = {}
+    for cand in candidates:
+        fid = cand.get("file_id")
+        if fid:
+            file_groups.setdefault(fid, []).append(cand)
+
+    document_candidates: List[Dict] = []
+
+    for fid, group in file_groups.items():
+        # Highest scoring chunk is primary anchor
+        primary = dict(group[0])
+        evidence_count = len(group)
+
+        # Collect distinct sections where evidence appeared
+        matched_sections = list(dict.fromkeys(
+            [c.get("parent_section") for c in group if c.get("parent_section")]
+        ))
+
+        # Collect figure evidence from matched chunks or document metadata
+        matched_figures: List[Dict[str, Any]] = []
+        seen_fig_hashes: set[str] = set()
+
+        for c in group:
+            if c.get("is_figure") and c.get("figure_data"):
+                f_data = dict(c["figure_data"])
+                f_hash = f_data.get("file_hash") or f_data.get("figure_id")
+                if f_hash and f_hash not in seen_fig_hashes:
+                    seen_fig_hashes.add(f_hash)
+                    f_data["relevance_score"] = round(float(c.get("relevance_score") or primary.get("relevance_score") or 0.88), 4)
+                    matched_figures.append(f_data)
+
+        # Check metadata for document figures if not found in matched chunks
+        f_info = None
+        if not matched_figures:
+            try:
+                import json
+                meta_file = Path(__file__).resolve().parent.parent / "uploads" / "metadata.json"
+                if meta_file.exists():
+                    with open(meta_file, "r", encoding="utf-8") as mf:
+                        meta = json.load(mf)
+                        if fid in meta:
+                            f_info = meta[fid]
+                            # Propagate topic_tags to candidate keywords
+                            if f_info.get("topic_tags"):
+                                primary["topic_tags"] = f_info["topic_tags"]
+                                primary["keywords"] = list(dict.fromkeys(primary.get("keywords", []) + f_info["topic_tags"]))
+
+                            if "figures" in f_info and f_info["figures"]:
+                                for f_item in f_info["figures"]:
+                                    f_hash = f_item.get("file_hash") or f_item.get("figure_id")
+                                    if f_hash and f_hash not in seen_fig_hashes:
+                                        seen_fig_hashes.add(f_hash)
+                                        f_copy = dict(f_item)
+                                        f_copy["relevance_score"] = round(float(primary.get("relevance_score") or 0.75), 4)
+                                        matched_figures.append(f_copy)
+                            else:
+                                # Standalone image / photo evidence file
+                                ext = str(f_info.get("extension", "")).lower()
+                                if f_info.get("file_type_category") == "photo" or ext in ("jpg", "jpeg", "png", "webp"):
+                                    f_name = f_info.get("filename", "Visual Asset")
+                                    matched_figures.append({
+                                        "figure_id": f"fig_{fid[:8]}",
+                                        "figure_label": "Visual Asset",
+                                        "page": 1,
+                                        "caption": f_name,
+                                        "image_url": f"/preview/{fid}",
+                                        "thumbnail_url": f"/preview/{fid}",
+                                        "provenance": f"{f_name}, p. 1",
+                                        "relevance_score": round(float(primary.get("relevance_score") or 0.85), 4),
+                                    })
+            except Exception:
+                pass
+
+        # Ensure provenance and enrich figures with detailed scene descriptions and swatches
+        fname = primary.get("filename", "Document")
+        from services.vision import analyze_image_full
+
+        for f in matched_figures:
+            if not f.get("provenance"):
+                f["provenance"] = f"{fname}, p. {f.get('page', 1)}, {f.get('figure_label', 'Fig.')}"
+            if not f.get("thumbnail_url"):
+                img_u = f.get("image_url", "")
+                if "/figures/" in img_u:
+                    base = Path(img_u).stem
+                    f["thumbnail_url"] = f"/figures/thumbnails/{base}_thumb.webp"
+                else:
+                    f["thumbnail_url"] = img_u
+            if not f.get("visual_id"):
+                f["visual_id"] = f.get("figure_id") or f"vis_{str(f.get('file_hash', ''))[:8]}"
+            if not f.get("bbox"):
+                f["bbox"] = [0.0, 0.0, float(f.get("width", 100)), float(f.get("height", 100))]
+
+            # Enrich with detailed scene description, swatches, and OCR if missing
+            if not f.get("swatches") or not f.get("scene_description"):
+                cand_path = f.get("image_path")
+                if not cand_path or not Path(cand_path).exists():
+                    fpath_meta = f_info.get("file_path") if f_info else None
+                    if fpath_meta and Path(fpath_meta).exists():
+                        cand_path = fpath_meta
+                if cand_path and Path(cand_path).exists():
+                    try:
+                        an = analyze_image_full(str(cand_path), original_filename=f.get("caption"))
+                        if not f.get("scene_description"):
+                            f["scene_description"] = an.get("scene_description", "")
+                            f["visual_description"] = an.get("scene_description", "")
+                        if not f.get("swatches") and an.get("swatches"):
+                            f["swatches"] = an.get("swatches")
+                        if not f.get("dominant_colors") and an.get("dominant_colors"):
+                            f["dominant_colors"] = an.get("dominant_colors")
+                        if not f.get("ocr_text") and an.get("ocr_text"):
+                            f["ocr_text"] = an.get("ocr_text")
+                        if not f.get("visual_tags") and an.get("visual_tags"):
+                            f["visual_tags"] = an.get("visual_tags")
+                    except Exception as e:
+                        logger.debug(f"[Search] Figure enrichment error: {e}")
+
+        primary["figures"] = matched_figures[:3]
+        primary["evidence_count"] = evidence_count
+        primary["matched_sections"] = matched_sections
+        primary["evidence_snippets"] = [
+            c.get("chunk_text", "")[:200] for c in group[:3]
+        ]
+        primary["evidence_chunks"] = group
+
+        # Evidence coverage boost: documents matching across multiple sections/chunks get boosted
+        if evidence_count > 1:
+            evidence_boost = min(0.005, (evidence_count - 1) * 0.0015)
+            primary["rrf_score"] = round(primary.get("rrf_score", 0.0) + evidence_boost, 6)
+
+
+        document_candidates.append(primary)
+
+    # Sort documents by score FIRST before doing any expensive neighbor expansions
+    document_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
+    top_candidates = document_candidates[:max_files]
+
+    # Context Window Expansion: Retrieve surrounding neighbors ONLY for top candidates
+    for doc in top_candidates:
+        fid = doc.get("file_id")
+        chunk_text = doc.get("chunk_text", "")
+        if qdrant_manager and hasattr(qdrant_manager, "get_surrounding_chunks"):
+            # Only do extra SQLite fetch if chunk text is brief (< 350 chars)
+            if len(chunk_text) < 350:
+                chunk_idx = doc.get("chunk_index", 0)
+                surrounding = qdrant_manager.get_surrounding_chunks(fid, chunk_idx)
+                expanded_text = surrounding.get("expanded_text")
+                if expanded_text:
+                    doc["expanded_text"] = expanded_text
+                    doc["expanded_context"] = expanded_text
+                if not doc.get("parent_section") and surrounding.get("parent_section"):
+                    doc["parent_section"] = surrounding.get("parent_section")
+                if not doc.get("section_path") and surrounding.get("section_path"):
+                    doc["section_path"] = surrounding.get("section_path")
+
+    return top_candidates
 
 
 def deduplicate_results_by_file(results: List[Dict], top_k: int) -> List[Dict]:
@@ -306,12 +517,46 @@ def execute_search_pipeline(
                 top_k=candidate_k,
             )
 
+            # Multi-Modal Query Intent Routing & Weighting
+            routing = classify_query_intent(query_text=query, explicit_mode=search_mode)
+            weights = routing.get("weights")
+            is_visual_mode = search_mode == "visual" or routing.get("is_visual_dominant", False)
+
+            # Discover visual candidates from retrieved chunks, figures, and image documents
+            visual_candidates = []
+            for cand in dense_candidates + sparse_candidates:
+                is_vis = (
+                    cand.get("is_figure")
+                    or cand.get("unit_type") == "figure"
+                    or cand.get("file_type") in ("jpg", "jpeg", "png", "webp", "photo")
+                    or cand.get("file_type_category") == "photo"
+                    or str(cand.get("filename", "")).lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                )
+                if is_vis and cand not in visual_candidates:
+                    visual_candidates.append(cand)
+
             # Reciprocal Rank Fusion
             fused_candidates = reciprocal_rank_fusion(
                 dense_results=dense_candidates,
                 sparse_results=sparse_candidates,
+                visual_results=visual_candidates if visual_candidates else None,
                 k=RRF_K_CONSTANT,
+                weights=weights,
             )
+
+            # Boost visual results if visual search mode
+            if is_visual_mode:
+                for cand in fused_candidates:
+                    is_vis = (
+                        cand.get("is_figure")
+                        or cand.get("figures")
+                        or cand.get("file_type") in ("jpg", "jpeg", "png", "webp", "photo")
+                        or cand.get("file_type_category") == "photo"
+                        or str(cand.get("filename", "")).lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                    )
+                    if is_vis:
+                        cand["rrf_score"] = round(cand.get("rrf_score", 0.0) + 0.025, 6)
+                fused_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
 
             if not fused_candidates:
                 # If no candidates found, fallback to dense or return empty
@@ -355,17 +600,17 @@ def execute_search_pipeline(
             # Re-sort after metadata lineage adjustment
             fused_candidates.sort(key=lambda x: x.get("rrf_score", 0.0), reverse=True)
 
-            # Objective 5: Adaptive Reranking Bypass (Fast-Path on High-Confidence Separation)
-            can_bypass = False
-            top_gap: float = 0.0
-            if len(fused_candidates) >= 2:
-                top_gap = fused_candidates[0]["rrf_score"] - fused_candidates[1]["rrf_score"]
-                # If gap is sufficiently high and exact keyword overlap matches
-                if top_gap >= 0.008 and (search_mode == "adaptive" or intent_type in ["find", "technical"]):
-                    can_bypass = True
-
+            # Objective 5: Cross-Encoder Reranking with dual query alignment (Default Hybrid Pipeline)
             reranker = get_reranker()
             intent_query = build_intent_clean_query(query, intent_data)
+
+            # Adaptive fast-path bypass is strictly reserved for explicit "adaptive" mode
+            can_bypass = False
+            top_gap: float = 0.0
+            if search_mode == "adaptive" and len(fused_candidates) >= 2:
+                top_gap = fused_candidates[0]["rrf_score"] - fused_candidates[1]["rrf_score"]
+                if top_gap >= 0.02:
+                    can_bypass = True
 
             if can_bypass:
                 logger.info("[Adaptive Route] Fast-path routing: Bypassing cross-encoder (margin=%.4f)", top_gap)
@@ -378,15 +623,19 @@ def execute_search_pipeline(
                 is_confident = len(final_results) > 0 and final_results[0]["relevance_score"] >= RRF_BASELINE_MIN_SCORE
                 confidence_msg = "Adaptive Fast-Path match verified."
             else:
-                # Deep-Path: Cross-Encoder Reranking
+                # Deep-Path: Cross-Encoder Reranking with Multi-Chunk Evidence Grouping & Context Expansion
+                document_candidates = group_and_expand_document_evidence(
+                    fused_candidates,
+                    qdrant_manager,
+                    max_files=max(top_k * 2, 6),
+                )
                 final_results, is_confident, confidence_msg = reranker.rerank_candidates(
                     query=query,
-                    candidates=fused_candidates,
-                    top_k=top_k * 3,
+                    candidates=document_candidates,
+                    top_k=top_k,
                     confidence_threshold=confidence_threshold,
                     intent_query=intent_query,
                 )
-                final_results = deduplicate_results_by_file(final_results, top_k)
 
             if not is_confident:
                 final_results = []
@@ -492,6 +741,11 @@ def _format_baseline_results(
                 "chunk_index": item.get("chunk_index", 0),
                 "sentence_text": snippet,
                 "matched_snippet": snippet,
+                "parent_section": item.get("parent_section", ""),
+                "section_path": item.get("section_path", []),
+                "evidence_count": item.get("evidence_count", 1),
+                "matched_sections": item.get("matched_sections", []),
+                "expanded_context": item.get("expanded_text") or item.get("expanded_context", ""),
                 "relevance_score": round(rel_score, 4),
                 "relevance_percentage": pct,
                 "rrf_score": item.get("rrf_score", 0.0),
@@ -501,7 +755,9 @@ def _format_baseline_results(
                 "keywords": item.get("keywords", []),
                 "folder_id": item.get("folder_id"),
                 "folder_path": item.get("folder_path", "/"),
+                "figures": item.get("figures", []),
             }
         )
+
 
     return formatted

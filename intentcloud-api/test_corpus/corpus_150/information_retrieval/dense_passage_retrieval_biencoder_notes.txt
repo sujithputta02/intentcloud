@@ -1,0 +1,10 @@
+# Dense Passage Retrieval Biencoder Notes
+
+Domain: Information Retrieval
+Filename: dense_passage_retrieval_biencoder_notes.txt
+
+## Abstract
+Operational engineering notes: Dual-encoder siamese architectures for dense passage retrieval using inner product nearest neighbors and MIPS.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

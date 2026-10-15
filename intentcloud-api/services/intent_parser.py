@@ -41,8 +41,19 @@ PLACEHOLDER_PATTERNS = (
 )
 
 
+import time
+
+_last_ollama_failure_time = 0.0
+OLLAMA_FAILURE_COOLDOWN = 60.0
+
+
 def parse_intent_with_phi3(query: str) -> Dict:
-    """Parse natural language query intent via Ollama."""
+    """Parse natural language query intent via Ollama (with offline cooldown)."""
+    global _last_ollama_failure_time
+    # If Ollama recently failed, use high-speed heuristic fallback immediately
+    if time.time() - _last_ollama_failure_time < OLLAMA_FAILURE_COOLDOWN:
+        return get_fallback_intent(query)
+
     try:
         logger.info("[Intent] Parsing: %s", query)
 
@@ -53,7 +64,8 @@ def parse_intent_with_phi3(query: str) -> Dict:
         return intent
 
     except Exception as exc:
-        logger.error("[Intent] Parsing failed: %s", exc)
+        _last_ollama_failure_time = time.time()
+        logger.warning("[Intent] Ollama unavailable (%s), cooling down for %ds and using fallback", exc, int(OLLAMA_FAILURE_COOLDOWN))
         return get_fallback_intent(query)
 
 
@@ -96,7 +108,7 @@ def call_ollama(query: str) -> str:
                 "top_p": 0.9,
                 "num_predict": 180,
             },
-            timeout=30,
+            timeout=2.0,
         )
 
         if response.status_code != 200:

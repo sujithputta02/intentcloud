@@ -1,0 +1,10 @@
+# Database Sharding Strategies Notes
+
+Domain: Software Architecture
+Filename: database_sharding_strategies_notes.txt
+
+## Abstract
+Operational engineering notes: Horizontal database partitioning, consistent hashing rings, virtual nodes, and cross-shard querying trade-offs.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

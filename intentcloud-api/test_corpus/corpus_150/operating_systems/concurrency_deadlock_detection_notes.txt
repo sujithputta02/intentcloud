@@ -1,0 +1,10 @@
+# Concurrency Deadlock Detection Notes
+
+Domain: Operating Systems
+Filename: concurrency_deadlock_detection_notes.txt
+
+## Abstract
+Operational engineering notes: Coffman conditions, resource allocation graphs, and Banker's algorithm for deadlock avoidance in multi-threaded systems.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

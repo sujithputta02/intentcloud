@@ -1,0 +1,10 @@
+# Infrastructure As Code Terraform Notes
+
+Domain: Devops Sre
+Filename: infrastructure_as_code_terraform_notes.txt
+
+## Abstract
+Operational engineering notes: Declarative state management, resource dependency DAG graphs, and configuration drift detection in Terraform.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

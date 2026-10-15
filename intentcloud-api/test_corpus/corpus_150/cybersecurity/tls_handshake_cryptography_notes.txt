@@ -1,0 +1,10 @@
+# Tls Handshake Cryptography Notes
+
+Domain: Cybersecurity
+Filename: tls_handshake_cryptography_notes.txt
+
+## Abstract
+Operational engineering notes: TLS 1.3 cryptographic handshake: Ephemeral Diffie-Hellman key exchange, AEAD ciphers, and 0-RTT early data risks.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

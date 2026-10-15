@@ -1,9 +1,37 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Zap, Brain, Binary, Shuffle, Search, AlertTriangle, Clock, Cpu, Lightbulb, Download } from "lucide-react";
+import { 
+  Sparkles, Zap, Brain, Binary, Shuffle, Search, AlertTriangle, 
+  Clock, Cpu, Lightbulb, Download, Image as ImageIcon, ZoomIn, 
+  X, Maximize2, Layers, Check, Palette, Copy 
+} from "lucide-react";
 import { API_URL } from "@/lib/api";
 import { getFileCategory } from "@/lib/topics";
+import HardwareOledPipeline from "@/components/HardwareOledPipeline";
+
+export interface FigureEvidence {
+  figure_id: string;
+  figure_label: string;
+  page: number;
+  caption: string;
+  ocr_text?: string;
+  visual_description?: string;
+  scene_description?: string;
+  swatches?: Array<{ name: string; hex: string; rgb?: number[] }>;
+  dominant_colors?: string[];
+  visual_tags?: string[];
+  image_url: string;
+  thumbnail_url?: string;
+  provenance: string;
+  relevance_score?: number;
+  bbox?: number[];
+  color_mode?: string;
+  mime_type?: string;
+  width?: number;
+  height?: number;
+  extraction_method?: string;
+}
 
 interface SearchResult {
   file_id: string;
@@ -19,7 +47,14 @@ interface SearchResult {
   explanation: string;
   keywords?: string[];
   upload_time?: string;
+  parent_section?: string;
+  section_path?: string[];
+  evidence_count?: number;
+  matched_sections?: string[];
+  expanded_context?: string;
+  figures?: FigureEvidence[];
 }
+
 
 interface SearchResponse {
   query: string;
@@ -47,11 +82,32 @@ interface SearchResponse {
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
-  const [searchMode, setSearchMode] = useState<"hybrid" | "dense" | "sparse" | "rrf_only">("hybrid");
+  const [searchMode, setSearchMode] = useState<"hybrid" | "visual" | "dense" | "sparse" | "rrf_only">("hybrid");
   const [topK, setTopK] = useState<number>(3);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeFigureModal, setActiveFigureModal] = useState<{
+    figure: FigureEvidence;
+    filename: string;
+    file_id: string;
+  } | null>(null);
+  const [modalGrayscale, setModalGrayscale] = useState<boolean>(false);
+  const [showOcrText, setShowOcrText] = useState<boolean>(false);
+  const [copiedHex, setCopiedHex] = useState<string | null>(null);
+
+
+  const syncHardwareOled = async (payload: { status?: string; query?: string; info?: string; match?: number }) => {
+    try {
+      await fetch("/api/hardware/oled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // Non-blocking hardware sync
+    }
+  };
 
   const executeSearch = async (queryString: string, mode: string = searchMode, count: number = topK) => {
     if (!queryString.trim()) {
@@ -62,11 +118,22 @@ export default function SearchPage() {
     setIsSearching(true);
     setError(null);
 
+    // Stream real-time stages to physical ESP32 OLED display
+    syncHardwareOled({ status: "SEARCHING", query: queryString, info: "Cognitive Ingest" });
+    const stageTimers: NodeJS.Timeout[] = [
+      setTimeout(() => syncHardwareOled({ status: "PARSING", query: queryString, info: "llama3.2:1b" }), 1200),
+      setTimeout(() => syncHardwareOled({ status: "ETHERNET", query: queryString, info: "LAN 192.168.2.2" }), 2800),
+      setTimeout(() => syncHardwareOled({ status: "HYBRID", query: queryString, info: "Dense + Sparse" }), 4500),
+      setTimeout(() => syncHardwareOled({ status: "RERANK", query: queryString, info: "MiniLM Neural" }), 7500),
+    ];
+
     try {
       const response = await fetch(
         `${API_URL}/search?query=${encodeURIComponent(queryString)}&top_k=${count}&search_mode=${mode}`,
         { method: "POST" }
       );
+
+      stageTimers.forEach(clearTimeout);
 
       if (!response.ok) {
         throw new Error(`Search request failed (${response.status}: ${response.statusText})`);
@@ -74,7 +141,23 @@ export default function SearchPage() {
 
       const data: SearchResponse = await response.json();
       setSearchResults(data);
+
+      // Push final result to physical OLED screen
+      const topMatch = data.results?.[0];
+      const matchScore = topMatch ? topMatch.relevance_percentage : 0;
+      syncHardwareOled({
+        status: "PUSHED",
+        query: queryString,
+        info: `Pi 3B | ${matchScore}% Match`,
+        match: matchScore,
+      });
     } catch (err) {
+      stageTimers.forEach(clearTimeout);
+      syncHardwareOled({
+        status: "ERROR",
+        query: queryString,
+        info: "Pi Search Error",
+      });
       setError(err instanceof Error ? err.message : "Search query failed");
     } finally {
       setIsSearching(false);
@@ -91,7 +174,7 @@ export default function SearchPage() {
     executeSearch(example, searchMode, topK);
   };
 
-  const handleModeChange = (mode: "hybrid" | "dense" | "sparse" | "rrf_only") => {
+  const handleModeChange = (mode: "hybrid" | "dense" | "sparse" | "rrf_only" | "visual") => {
     setSearchMode(mode);
     if (query.trim()) {
       executeSearch(query, mode, topK);
@@ -160,7 +243,8 @@ export default function SearchPage() {
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[var(--text-secondary)] px-2 font-semibold">Mode:</span>
             {[
-              { id: "hybrid", label: "Hybrid + Rerank (Phase 4)", icon: Zap, desc: "Dense + Sparse + RRF + Cross-Encoder" },
+              { id: "hybrid", label: "Hybrid + Rerank", icon: Zap, desc: "Dense + Sparse + RRF + Cross-Encoder" },
+              { id: "visual", label: "Visual Evidence", icon: ImageIcon, desc: "Diagrams, Charts & Multimodal Figures" },
               { id: "dense", label: "Dense Semantic", icon: Brain, desc: "all-MiniLM-L6-v2" },
               { id: "sparse", label: "Sparse Keyword", icon: Binary, desc: "Feature Hash BM25" },
               { id: "rrf_only", label: "RRF Fusion", icon: Shuffle, desc: "Dense + Sparse (No Rerank)" },
@@ -234,6 +318,16 @@ export default function SearchPage() {
             </button>
           </div>
         </form>
+
+        {/* Real-Time Pictorial Edge Memory & OLED Pipeline Animation */}
+        <HardwareOledPipeline
+          isSearching={isSearching}
+          query={query}
+          searchMode={searchMode}
+          topResult={searchResults?.results?.[0] || null}
+          metrics={searchResults?.metrics || null}
+          parsedIntent={searchResults?.parsed_intent || null}
+        />
 
         {/* Error message */}
         {error && (
@@ -375,6 +469,23 @@ export default function SearchPage() {
                           </div>
                         </div>
 
+                        {/* Document Memory Hierarchy & Evidence Badges */}
+                        {(res.parent_section || (res.evidence_count && res.evidence_count > 1)) && (
+                          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                            {res.parent_section && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)] text-xs font-medium border border-[var(--accent)]/20">
+                                <span className="opacity-70 text-[10px] font-mono uppercase">Section:</span>
+                                <span className="font-semibold">{res.parent_section}</span>
+                              </span>
+                            )}
+                            {res.evidence_count && res.evidence_count > 1 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium border border-emerald-500/20">
+                                <span className="font-semibold">{res.evidence_count} evidence nodes</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         {/* Explainable Matched Snippet (Golden Citation Box) */}
                         {snippet && (
                           <div className="space-y-1">
@@ -386,6 +497,135 @@ export default function SearchPage() {
                             </div>
                           </div>
                         )}
+
+                        {/* IEEE Figure Evidence Inline Cards */}
+                        {res.figures && res.figures.length > 0 && (
+                          <div className="space-y-2 pt-2 border-t border-[var(--border-subtle)]">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-secondary)]">
+                                <ImageIcon className="w-3.5 h-3.5 text-[var(--accent)]" />
+                                <span className="uppercase tracking-wider text-[11px] font-bold">
+                                  Figure Evidence (IEEE Citation Format)
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-[var(--text-secondary)] font-mono">
+                                {res.figures.length} {res.figures.length === 1 ? "figure" : "figures"} extracted
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                              {res.figures.map((fig, fIdx) => {
+                                const fullImgUrl = fig.image_url.startsWith("http") ? fig.image_url : `${API_URL}${fig.image_url}`;
+                                const thumbUrl = fig.thumbnail_url
+                                  ? (fig.thumbnail_url.startsWith("http") ? fig.thumbnail_url : `${API_URL}${fig.thumbnail_url}`)
+                                  : fullImgUrl;
+
+                                const scorePct = fig.relevance_score
+                                  ? Math.round(fig.relevance_score <= 1.0 ? fig.relevance_score * 100 : fig.relevance_score)
+                                  : res.relevance_percentage;
+
+                                return (
+                                  <div
+                                    key={fig.figure_id || fIdx}
+                                    className="group relative flex flex-col rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)] hover:border-[var(--accent)]/60 transition p-2.5 shadow-sm space-y-2"
+                                  >
+                                    {/* Grayscale-friendly Thumbnail Box */}
+                                    <div
+                                      onClick={() => {
+                                        setActiveFigureModal({
+                                          figure: fig,
+                                          filename: res.filename,
+                                          file_id: res.file_id,
+                                        });
+                                        setModalGrayscale(false);
+                                        setShowOcrText(false);
+                                      }}
+                                      className="relative w-full h-36 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 border border-[var(--border-subtle)] flex items-center justify-center cursor-pointer group-hover:shadow-md transition"
+                                      title={`Click to inspect ${fig.figure_label}: ${fig.caption}`}
+                                    >
+                                      <img
+                                        src={thumbUrl}
+                                        alt={fig.caption || fig.figure_label}
+                                        className="w-full h-full object-contain transition-all duration-300 group-hover:scale-105"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                          const target = e.target as HTMLImageElement;
+                                          if (target.src !== fullImgUrl) {
+                                            target.src = fullImgUrl;
+                                          } else {
+                                            target.style.display = "none";
+                                          }
+                                        }}
+                                      />
+
+                                      {/* Sequential Figure Label & Score Badge */}
+                                      <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-black/75 text-white shadow-sm border border-white/20">
+                                          {fig.figure_label}
+                                        </span>
+                                        <span className="px-1.5 py-0.5 rounded-md text-[9px] font-semibold bg-emerald-600/90 text-white shadow-sm">
+                                          {scorePct}% match
+                                        </span>
+                                      </div>
+
+                                      {/* Click to Enlarge Hover Icon */}
+                                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-white text-black dark:bg-zinc-900 dark:text-white shadow flex items-center gap-1">
+                                          <ZoomIn className="w-3 h-3" /> Inspect Details
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* IEEE Caption immediately below thumbnail */}
+                                    <div className="space-y-1.5">
+                                      <p className="text-[11px] font-medium text-[var(--text-primary)] line-clamp-2 leading-snug">
+                                        <strong className="font-bold text-[var(--accent)] mr-1">
+                                          {fig.figure_label}:
+                                        </strong>
+                                        {fig.caption || "Embedded diagram evidence"}
+                                      </p>
+
+                                      {/* Detailed Scene Description */}
+                                      {(fig.scene_description || fig.visual_description) && (
+                                        <p className="text-[10px] text-[var(--text-secondary)] line-clamp-2 leading-relaxed bg-[var(--bg-surface)] p-1.5 rounded-md border border-[var(--border-subtle)]">
+                                          <Sparkles className="w-2.5 h-2.5 text-[var(--accent)] inline mr-1" />
+                                          {fig.scene_description || fig.visual_description}
+                                        </p>
+                                      )}
+
+                                      {/* Swatches preview */}
+                                      {fig.swatches && fig.swatches.length > 0 && (
+                                        <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                                          {fig.swatches.slice(0, 6).map((swatch, sIdx) => (
+                                            <span
+                                              key={sIdx}
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-[var(--bg-surface)] border border-[var(--border-subtle)]"
+                                              title={`${swatch.name}: ${swatch.hex}`}
+                                            >
+                                              <span
+                                                className="w-2 h-2 rounded-full border border-black/10 shrink-0"
+                                                style={{ backgroundColor: swatch.hex }}
+                                              />
+                                              <span>{swatch.hex}</span>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      <div className="flex items-center justify-between text-[10px] text-[var(--text-secondary)] font-mono pt-1">
+                                        <span>p. {fig.page}</span>
+                                        <span className="truncate max-w-[120px]" title={fig.provenance}>
+                                          {fig.provenance}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
 
                         {/* Load-bearing Explanation & Keywords */}
                         <div className="pt-2 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -450,7 +690,179 @@ export default function SearchPage() {
             </div>
           </div>
         )}
+
+        {/* Interactive Figure Evidence Lightbox Modal */}
+        {activeFigureModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+            onClick={() => setActiveFigureModal(null)}
+          >
+            <div
+              className="relative max-w-4xl w-full max-h-[90vh] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-[var(--accent)] text-white shadow-sm">
+                    {activeFigureModal.figure.figure_label}
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold text-[var(--text-primary)] truncate">
+                      {activeFigureModal.filename}
+                    </h3>
+                    <p className="text-xs text-[var(--text-secondary)] font-mono">
+                      Provenance: {activeFigureModal.figure.provenance}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Toggle Grayscale / Full Color */}
+                  <button
+                    type="button"
+                    onClick={() => setModalGrayscale(!modalGrayscale)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--accent)] text-[var(--text-primary)] transition"
+                  >
+                    {modalGrayscale ? "Show Color (RGB)" : "Grayscale (IEEE Print)"}
+                  </button>
+
+                  {/* Download Original Document */}
+                  <a
+                    href={`${API_URL}/download/${activeFigureModal.file_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Source PDF
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveFigureModal(null)}
+                    className="p-1.5 rounded-xl text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition"
+                    aria-label="Close modal"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Image Body */}
+              <div className="flex-1 overflow-auto p-6 flex flex-col items-center justify-center bg-zinc-950/40 min-h-[300px]">
+                <img
+                  src={
+                    activeFigureModal.figure.image_url.startsWith("http")
+                      ? activeFigureModal.figure.image_url
+                      : `${API_URL}${activeFigureModal.figure.image_url}`
+                  }
+                  alt={activeFigureModal.figure.caption || activeFigureModal.figure.figure_label}
+                  className={`max-h-[55vh] max-w-full object-contain rounded-lg shadow-lg border border-white/10 transition-all ${
+                    modalGrayscale ? "filter grayscale contrast-125" : ""
+                  }`}
+                />
+              </div>
+
+              {/* Modal Footer: Caption, Scene Understanding, Color Swatches & OCR */}
+              <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] space-y-3 text-xs max-h-[35vh] overflow-y-auto scrollbar-thin">
+                <div className="p-3 rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)]">
+                  <p className="font-serif italic text-sm text-[var(--text-primary)] leading-relaxed">
+                    <strong className="font-sans not-italic font-bold text-[var(--accent)] mr-1.5">
+                      {activeFigureModal.figure.figure_label}:
+                    </strong>
+                    {activeFigureModal.figure.caption}
+                  </p>
+                  {activeFigureModal.figure.bbox && (
+                    <p className="text-[10px] text-[var(--text-secondary)] font-mono mt-1">
+                      Coordinates (Bounding Box): [{activeFigureModal.figure.bbox.join(", ")}]
+                    </p>
+                  )}
+                </div>
+
+                {/* Detailed Scene Understanding */}
+                {activeFigureModal.figure.scene_description && (
+                  <div className="p-3 rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)] space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--accent)] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Visual Scene Breakdown & VLM Analysis
+                    </span>
+                    <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                      {activeFigureModal.figure.scene_description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Extracted Brand Swatches Grid */}
+                {activeFigureModal.figure.swatches && activeFigureModal.figure.swatches.length > 0 && (
+                  <div className="p-3 rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-1.5">
+                        <Palette className="w-3.5 h-3.5 text-[var(--accent)]" />
+                        Extracted Color Swatches & Palette ({activeFigureModal.figure.swatches.length})
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)]">Click swatch to copy hex</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                      {activeFigureModal.figure.swatches.map((swatch, sIdx) => {
+                        const isCopied = copiedHex === swatch.hex;
+                        return (
+                          <div
+                            key={sIdx}
+                            onClick={() => {
+                              navigator.clipboard.writeText(swatch.hex);
+                              setCopiedHex(swatch.hex);
+                              setTimeout(() => setCopiedHex(null), 1800);
+                            }}
+                            className="flex flex-col items-center p-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--accent)] transition cursor-pointer group text-center space-y-1.5 shadow-xs"
+                            title={`Click to copy ${swatch.hex}`}
+                          >
+                            <div
+                              className="w-10 h-10 rounded-lg shadow-inner border border-black/15 dark:border-white/20 group-hover:scale-105 transition flex items-center justify-center relative"
+                              style={{ backgroundColor: swatch.hex }}
+                            >
+                              {isCopied && (
+                                <span className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center text-white text-[10px] font-bold">
+                                  ✓
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-semibold text-[var(--text-primary)] truncate max-w-full">
+                              {swatch.name}
+                            </span>
+                            <span className="text-[10px] font-mono text-[var(--text-secondary)] font-medium">
+                              {swatch.hex}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional OCR / Diagram Labels Accordion */}
+                {(activeFigureModal.figure.ocr_text || activeFigureModal.figure.visual_description) && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowOcrText(!showOcrText)}
+                      className="text-xs font-semibold text-[var(--accent)] hover:underline inline-flex items-center gap-1"
+                    >
+                      {showOcrText ? "Hide Diagram Labels & Text" : "View Extracted Diagram Labels & Text (OCR)"}
+                    </button>
+                    {showOcrText && (
+                      <div className="mt-2 p-3 rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)] whitespace-pre-wrap max-h-32 overflow-y-auto">
+                        {activeFigureModal.figure.ocr_text || activeFigureModal.figure.visual_description}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+

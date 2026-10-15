@@ -1,0 +1,10 @@
+# Kubernetes Pod Lifecycle Notes
+
+Domain: Cloud Computing
+Filename: kubernetes_pod_lifecycle_notes.txt
+
+## Abstract
+Operational engineering notes: Kubernetes pod phases, init containers, readiness probes, liveness probes, and graceful termination pre-stop hooks.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

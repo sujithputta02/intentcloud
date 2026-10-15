@@ -1,0 +1,10 @@
+# Distributed Transactions 2Pc Notes
+
+Domain: Distributed Systems
+Filename: distributed_transactions_2pc_notes.txt
+
+## Abstract
+Operational engineering notes: Two-Phase Commit (2PC) protocol, coordinator failure states, and Saga orchestration for distributed data consistency.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

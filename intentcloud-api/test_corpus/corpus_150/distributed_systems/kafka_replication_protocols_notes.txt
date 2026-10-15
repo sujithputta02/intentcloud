@@ -1,0 +1,10 @@
+# Kafka Replication Protocols Notes
+
+Domain: Distributed Systems
+Filename: kafka_replication_protocols_notes.txt
+
+## Abstract
+Operational engineering notes: Apache Kafka partition replication, in-sync replicas (ISR), high watermark offset, and leader election under network partitions.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

@@ -1,0 +1,10 @@
+# Adam Optimizer Mathematics Notes
+
+Domain: Machine Learning
+Filename: adam_optimizer_mathematics_notes.txt
+
+## Abstract
+Operational engineering notes: First and second moment estimation with bias corrections and weight decay decoupling in Adam and AdamW optimizers.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

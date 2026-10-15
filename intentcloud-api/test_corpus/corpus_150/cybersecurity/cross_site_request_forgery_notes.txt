@@ -1,0 +1,10 @@
+# Cross Site Request Forgery Notes
+
+Domain: Cybersecurity
+Filename: cross_site_request_forgery_notes.txt
+
+## Abstract
+Operational engineering notes: SameSite cookie policies, anti-CSRF synchronizer tokens, and defense-in-depth web application protection.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

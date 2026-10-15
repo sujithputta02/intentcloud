@@ -1,0 +1,10 @@
+# Virtual Memory Paging Algorithms Notes
+
+Domain: Operating Systems
+Filename: virtual_memory_paging_algorithms_notes.txt
+
+## Abstract
+Operational engineering notes: Hierarchical page tables, Translation Lookaside Buffer (TLB) misses, and Least Recently Used (LRU) page replacement policies.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

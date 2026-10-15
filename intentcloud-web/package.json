@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3010",
+    "dev": "next dev --webpack -p 3010",
     "build": "next build",
     "start": "next start -p 3010",
     "lint": "eslint"
@@ -35,5 +35,8 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
-  ]
+  ],
+  "optionalDependencies": {
+    "@next/swc-darwin-arm64": "^16.3.8"
+  }
 }

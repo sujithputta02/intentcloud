@@ -1,0 +1,10 @@
+# Error Budgets And Slo Notes
+
+Domain: Devops Sre
+Filename: error_budgets_and_slo_notes.txt
+
+## Abstract
+Operational engineering notes: Defining Service Level Indicators (SLI), Service Level Objectives (SLO), and error budget burn rate multi-window alerts.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

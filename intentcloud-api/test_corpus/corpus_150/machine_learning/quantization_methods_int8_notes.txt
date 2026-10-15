@@ -1,0 +1,10 @@
+# Quantization Methods Int8 Notes
+
+Domain: Machine Learning
+Filename: quantization_methods_int8_notes.txt
+
+## Abstract
+Operational engineering notes: Post-training quantization (PTQ) and quantization-aware training (QAT) mapping 32-bit floating point weights to INT8 representations.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

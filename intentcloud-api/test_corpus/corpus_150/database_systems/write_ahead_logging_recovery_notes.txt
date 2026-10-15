@@ -1,0 +1,10 @@
+# Write Ahead Logging Recovery Notes
+
+Domain: Database Systems
+Filename: write_ahead_logging_recovery_notes.txt
+
+## Abstract
+Operational engineering notes: ARIES recovery algorithm: analysis, redo, and undo phases for database crash consistency and checkpointing.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

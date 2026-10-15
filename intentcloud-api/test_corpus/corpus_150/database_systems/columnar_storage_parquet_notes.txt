@@ -1,0 +1,10 @@
+# Columnar Storage Parquet Notes
+
+Domain: Database Systems
+Filename: columnar_storage_parquet_notes.txt
+
+## Abstract
+Operational engineering notes: Column-oriented storage formats, dictionary encoding, run-length encoding (RLE), and bit-packing in Apache Parquet.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

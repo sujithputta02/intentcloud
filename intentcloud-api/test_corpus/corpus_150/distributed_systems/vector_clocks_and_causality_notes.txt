@@ -1,0 +1,10 @@
+# Vector Clocks And Causality Notes
+
+Domain: Distributed Systems
+Filename: vector_clocks_and_causality_notes.txt
+
+## Abstract
+Operational engineering notes: Logical clocks, Lamport timestamps, and vector clocks for partial ordering in decentralized distributed systems.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

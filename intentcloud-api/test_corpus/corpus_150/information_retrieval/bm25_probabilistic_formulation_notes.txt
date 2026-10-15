@@ -1,0 +1,10 @@
+# Bm25 Probabilistic Formulation Notes
+
+Domain: Information Retrieval
+Filename: bm25_probabilistic_formulation_notes.txt
+
+## Abstract
+Operational engineering notes: Okapi BM25 scoring formula: inverse document frequency (IDF) saturation and sub-linear term frequency document length normalization.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

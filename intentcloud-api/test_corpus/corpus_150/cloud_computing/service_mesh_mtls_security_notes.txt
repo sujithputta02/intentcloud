@@ -1,0 +1,10 @@
+# Service Mesh Mtls Security Notes
+
+Domain: Cloud Computing
+Filename: service_mesh_mtls_security_notes.txt
+
+## Abstract
+Operational engineering notes: Istio and Linkerd service mesh data planes with Envoy sidecar proxies and automatic mTLS certificate rotation.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

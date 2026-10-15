@@ -1,0 +1,10 @@
+# Acid Isolation Levels Notes
+
+Domain: Database Systems
+Filename: acid_isolation_levels_notes.txt
+
+## Abstract
+Operational engineering notes: Read Uncommitted, Read Committed, Repeatable Read, and Serializable snapshot isolation anomalies: dirty reads and phantom reads.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

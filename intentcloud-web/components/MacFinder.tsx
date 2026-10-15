@@ -837,14 +837,19 @@ export default function MacFinder({
             </div>
 
             {/* BOTTOM STATUS & BREADCRUMB BAR */}
-            <div className="pt-6 mt-8 border-t border-black/[0.04] dark:border-white/[0.06] flex items-center justify-between select-none">
+            <div className="pt-6 mt-8 border-t border-black/[0.04] dark:border-white/[0.06] flex items-center justify-between select-none text-[11px] text-gray-500 dark:text-gray-400">
+              {/* Item Count Display on Bottom-Left */}
+              <div className="font-medium">
+                {displayedFiles.length + displayedSubfolders.length} {displayedFiles.length + displayedSubfolders.length === 1 ? "item" : "items"}
+              </div>
+
               {/* Subtle Scrollbar Indicator in Center */}
               <div className="flex-1 flex justify-center">
                 <div className="h-1.5 w-32 bg-gray-300/80 dark:bg-gray-600/80 rounded-full" />
               </div>
 
               {/* Dynamic Breadcrumb Path on Bottom-Right */}
-              <div className="text-[11px] text-gray-400 dark:text-gray-500 font-normal truncate max-w-xs">
+              <div className="font-normal truncate max-w-xs text-right">
                 {currentPathBreadcrumb}
               </div>
             </div>

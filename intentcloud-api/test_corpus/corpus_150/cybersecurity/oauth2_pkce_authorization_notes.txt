@@ -1,0 +1,10 @@
+# Oauth2 Pkce Authorization Notes
+
+Domain: Cybersecurity
+Filename: oauth2_pkce_authorization_notes.txt
+
+## Abstract
+Operational engineering notes: OAuth 2.0 Authorization Code flow with Proof Key for Code Exchange (PKCE) for public and native clients.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

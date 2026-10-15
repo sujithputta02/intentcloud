@@ -1,0 +1,10 @@
+# Reciprocal Rank Fusion Mechanics Notes
+
+Domain: Information Retrieval
+Filename: reciprocal_rank_fusion_mechanics_notes.txt
+
+## Abstract
+Operational engineering notes: Scale-invariant Reciprocal Rank Fusion (RRF, k=60) combining heterogeneous ranking distributions into an integrated candidate pool.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

@@ -1,0 +1,10 @@
+# Low Power Energy Characterization Notes
+
+Domain: Edge Iot
+Filename: low_power_energy_characterization_notes.txt
+
+## Abstract
+Operational engineering notes: Measuring Joules-per-query on 15-watt single-board computers under continuous transformer inference loads.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

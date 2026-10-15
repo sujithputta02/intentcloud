@@ -1,0 +1,10 @@
+# Lsm Tree Storage Engines Notes
+
+Domain: Database Systems
+Filename: lsm_tree_storage_engines_notes.txt
+
+## Abstract
+Operational engineering notes: Log-Structured Merge-tree architecture: in-memory MemTable, Write-Ahead Log (WAL), and multi-level SSTable compaction.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

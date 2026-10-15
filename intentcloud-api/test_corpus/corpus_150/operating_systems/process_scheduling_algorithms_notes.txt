@@ -1,0 +1,10 @@
+# Process Scheduling Algorithms Notes
+
+Domain: Operating Systems
+Filename: process_scheduling_algorithms_notes.txt
+
+## Abstract
+Operational engineering notes: Completely Fair Scheduler (CFS), red-black tree runqueues, nice values, and priority decay in the Linux kernel.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.

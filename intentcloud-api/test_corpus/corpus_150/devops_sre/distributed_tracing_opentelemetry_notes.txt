@@ -1,0 +1,10 @@
+# Distributed Tracing Opentelemetry Notes
+
+Domain: Devops Sre
+Filename: distributed_tracing_opentelemetry_notes.txt
+
+## Abstract
+Operational engineering notes: Span context propagation, W3C traceparent headers, and distributed trace sampling with Jaeger and OpenTelemetry.
+
+## Implementation Notes
+Local-first document indexed into 384-dimensional dense semantic vectors and 1,000,003-dimensional sparse token hashes.
