@@ -140,7 +140,7 @@ def generate_fig1_category_accuracy():
     
     mode_a = [100.0, 53.3, 73.3, 60.0, 17.5, 20.0]  # Sparse BM25
     mode_b = [66.7, 86.7, 73.3, 66.7, 45.0, 100.0]  # Dense Bi-Encoder
-    mode_c = [100.0, 100.0, 100.0, 100.0, 97.5, 100.0] # Proposed Hybrid Pipeline
+    mode_c = [100.0, 93.3, 93.3, 100.0, 97.5, 100.0] # Proposed Hybrid Pipeline (58/60 in-domain Top-1 = 96.7%)
     
     x = np.arange(len(categories))
     width = 0.25
@@ -198,7 +198,7 @@ def generate_fig2_worked_example():
     # Step 1: Dual Stream Candidate Pools (Side by Side)
     rect_s = patches.FancyBboxPatch((2, 48), 46, 29, boxstyle="round,pad=0.8", facecolor="#F7FAFC", edgecolor="#4A5568", lw=0.9)
     ax.add_patch(rect_s)
-    ax.text(25, 73, "Sparse Stream (BM25)", ha="center", va="center", fontsize=6.4, fontweight="bold", color="#2D3748")
+    ax.text(25, 73, "Sparse Stream (Feature Hashing)", ha="center", va="center", fontsize=6.4, fontweight="bold", color="#2D3748")
     ax.text(4, 65, "1. outage_incident_log.txt", fontsize=5.4, color="#4A5568")
     ax.text(4, 59, "2. microservices_v1.pdf", fontsize=5.4, color="#4A5568")
     ax.text(4, 53, "3. circuit_breaker_v2 (Target)", fontsize=5.4, fontweight="bold", color="#C53030")
@@ -421,6 +421,7 @@ def generate_fig6_ui_workflow():
 
 
 if __name__ == "__main__":
+    import shutil
     print(f"Generating full suite of IEEE publication figures to {OUTPUT_DIR} ...")
     generate_fig0_architecture()
     generate_fig1_category_accuracy()
@@ -429,4 +430,9 @@ if __name__ == "__main__":
     generate_fig4_confidence_distribution()
     generate_fig5_corpus_composition()
     # Note: generate_fig6_ui_workflow() omitted per paper layout optimization
-    print("All 6 IEEE publication figures generated successfully!")
+
+    # Ensure all figures are copied to parent docs/paper/ for direct LaTeX inclusion
+    for fig_file in OUTPUT_DIR.glob("*.*"):
+        if fig_file.suffix in [".pdf", ".png"]:
+            shutil.copy(fig_file, OUTPUT_DIR.parent / fig_file.name)
+    print("All 6 IEEE publication figures generated and synchronized successfully!")
