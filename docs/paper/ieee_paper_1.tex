@@ -13,23 +13,23 @@
 \usepackage{microtype}
 
 % Space-saving layout parameters for strict 6-page limit
-\linespread{0.925}
-\setlength{\textfloatsep}{2.5pt plus 0.5pt minus 0.5pt}
-\setlength{\floatsep}{2.5pt plus 0.5pt minus 0.5pt}
-\setlength{\intextsep}{2.5pt plus 0.5pt minus 0.5pt}
-\setlength{\dbltextfloatsep}{2.5pt plus 0.5pt minus 0.5pt}
-\setlength{\dblfloatsep}{2.5pt plus 0.5pt minus 0.5pt}
-\setlength{\abovecaptionskip}{1.5pt plus 0.5pt minus 0.5pt}
+\linespread{0.915}
+\setlength{\textfloatsep}{2.0pt plus 0.5pt minus 0.5pt}
+\setlength{\floatsep}{2.0pt plus 0.5pt minus 0.5pt}
+\setlength{\intextsep}{2.0pt plus 0.5pt minus 0.5pt}
+\setlength{\dbltextfloatsep}{2.0pt plus 0.5pt minus 0.5pt}
+\setlength{\dblfloatsep}{2.0pt plus 0.5pt minus 0.5pt}
+\setlength{\abovecaptionskip}{1.0pt plus 0.5pt minus 0.5pt}
 \setlength{\belowcaptionskip}{0.5pt plus 0.5pt minus 0.5pt}
-\setlength{\abovedisplayskip}{1.5pt plus 0.5pt minus 0.5pt}
-\setlength{\belowdisplayskip}{1.5pt plus 0.5pt minus 0.5pt}
-\setlength{\abovedisplayshortskip}{0.8pt plus 0.5pt minus 0.5pt}
-\setlength{\belowdisplayshortskip}{0.8pt plus 0.5pt minus 0.5pt}
+\setlength{\abovedisplayskip}{1.2pt plus 0.5pt minus 0.5pt}
+\setlength{\belowdisplayskip}{1.2pt plus 0.5pt minus 0.5pt}
+\setlength{\abovedisplayshortskip}{0.6pt plus 0.5pt minus 0.5pt}
+\setlength{\belowdisplayshortskip}{0.6pt plus 0.5pt minus 0.5pt}
 
 \makeatletter
-\def\section{\@startsection{section}{1}{\z@}{0.9ex plus 0.2ex minus 0.1ex}{0.4ex plus 0.1ex}{\normalfont\normalsize\scshape\centering}}
-\def\subsection{\@startsection{subsection}{2}{\z@}{0.7ex plus 0.1ex minus 0.1ex}{0.3ex plus 0.1ex}{\normalfont\normalsize\itshape}}
-\def\subsubsection{\@startsection{subsubsection}{3}{\z@}{0.5ex plus 0.1ex minus 0.1ex}{0.2ex plus 0.1ex}{\normalfont\normalsize\itshape}}
+\def\section{\@startsection{section}{1}{\z@}{0.75ex plus 0.15ex minus 0.1ex}{0.35ex plus 0.1ex}{\normalfont\normalsize\scshape\centering}}
+\def\subsection{\@startsection{subsection}{2}{\z@}{0.60ex plus 0.1ex minus 0.1ex}{0.25ex plus 0.1ex}{\normalfont\normalsize\itshape}}
+\def\subsubsection{\@startsection{subsubsection}{3}{\z@}{0.45ex plus 0.1ex minus 0.1ex}{0.15ex plus 0.1ex}{\normalfont\normalsize\itshape}}
 \makeatother
 
 % Float placement optimization to prevent sparse float pages
@@ -73,12 +73,19 @@ vikaskakarla.ak@gmail.com}
 Bangalore, India \\
 karnatimokshith@gmail.com}
 \and
-\IEEEauthorblockN{Ramandeep Kaur}
+\IEEEauthorblockN{Ramandeep Kaur*}
 \IEEEauthorblockA{\textit{Dept. of Computer Science \&} \\
 \textit{Technology} \\
 \textit{Dayananda Sagar University} \\
 Bangalore, India \\
-ramandeep-ct@dsu.edu.in}
+ramangrewalg@gmail.com}
+\and
+\IEEEauthorblockN{Sudha Danthuluri}
+\IEEEauthorblockA{\textit{Dept. of Computer Science \&} \\
+\textit{Technology} \\
+\textit{Dayananda Sagar University} \\
+Bangalore, India \\
+danthulurisudha15@gmail.com}
 }
 
 \maketitle
@@ -134,10 +141,10 @@ To resolve the lexical-semantic gap, IntentCloud adopts complementary dense bi-e
 \caption{Research Gaps from Literature Survey and IntentCloud Response}
 \label{tab:gap}
 \centering
-\scriptsize
+\fontsize{6.5pt}{7.5pt}\selectfont
 \setlength{\tabcolsep}{2pt}
-\renewcommand{\arraystretch}{0.84}
-\begin{tabular}{p{0.34\linewidth}p{0.62\linewidth}}
+\renewcommand{\arraystretch}{0.78}
+\begin{tabular}{p{0.37\linewidth}p{0.59\linewidth}}
 \toprule
 \textbf{Gap Category} & \textbf{IntentCloud Response} \\
 \midrule
@@ -154,7 +161,7 @@ Remote access isolation~\cite{sriram2024local} & Local memory with optional Zero
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.55\textwidth]{fig_architecture.pdf}
+\includegraphics[width=0.48\textwidth]{fig_architecture.pdf}
 \caption{Architectural dataflow of the IntentCloud local retrieval pipeline of ingestion, dual-space embedding, parallel candidate retrieval, and Reciprocal Rank Fusion, cross-encoder reranking, and explainable confidence gating stages.}
 \label{fig:architecture}
 \vspace{-4pt}
@@ -195,7 +202,7 @@ Given query $q$, parallel asynchronous searches retrieve dense and sparse candid
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=0.48\columnwidth]{fig_worked_example.pdf}
+\includegraphics[width=0.45\columnwidth]{fig_worked_example (1).pdf}
 \caption{Worked retrieval trace for an episodic query, illustrating dual-stream candidate lists, reciprocal rank fusion convergence, and cross-encoder precision verification with confidence gating.}
 \label{fig:worked_example}
 \vspace{-6pt}
@@ -229,10 +236,10 @@ IntentCloud delivers original document files via unified FastAPI and Next.js ser
 \caption{Comprehensive Retrieval Performance and Ablation Grid on the Held-Out Test Split (12,744 Vectors, $n=60$ In-Domain, 40 Hard Negatives, 10 OOD Controls)}
 \label{tab:ablation_grid}
 \centering
-\scriptsize
+\fontsize{6.8pt}{7.8pt}\selectfont
 \setlength{\tabcolsep}{2.5pt}
-\renewcommand{\arraystretch}{0.84}
-\resizebox{\textwidth}{!}{%
+\renewcommand{\arraystretch}{0.76}
+\resizebox{0.96\textwidth}{!}{%
 \begin{tabular}{lcccccc}
 \toprule
 \textbf{Retrieval Configuration} & \textbf{Top-1 Accuracy [95\% CI]} & \textbf{Top-3} & \textbf{MRR [95\% CI]} & \textbf{Latency} & \textbf{Hard Neg. Rej.} & \textbf{OOD Rej.} \\
@@ -268,7 +275,7 @@ A benchmark corpus of 175 multi-modal documents was at the IntentCloud ingestion
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=0.82\columnwidth]{fig_corpus_distribution.pdf}
+\includegraphics[width=0.68\columnwidth]{fig_corpus_distribution.pdf}
 \caption{Document distribution across the five authentic categories comprising the 175-file multi-modal benchmark corpus (12,744 indexed vectors).}
 \label{fig:corpus_composition}
 \vspace{-6pt}
@@ -318,7 +325,7 @@ Each pieces contribution to the solution can be seen in the ablation analysis th
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=0.85\columnwidth]{fig_category_accuracy.pdf}
+\includegraphics[width=0.72\columnwidth]{fig_category_accuracy.pdf}
 \caption{Per-category Top-1 retrieval accuracy and negative rejection rate across the held-out benchmark suite for Mode A (BM25), Mode B (dense bi-encoder), and proposed Mode C (hybrid + RRF + cross-encoder).}
 \label{fig:category_accuracy}
 \vspace{-6pt}
@@ -326,7 +333,7 @@ Each pieces contribution to the solution can be seen in the ablation analysis th
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=0.85\columnwidth]{fig_confidence_distribution.pdf}
+\includegraphics[width=0.72\columnwidth]{fig_confidence_distribution.pdf}
 \caption{Cross-encoder confidence score distribution for in-domain positive queries and negative controls relative to the $\tau = 0.40$ abstention boundary.}
 \label{fig:confidence_distribution}
 \vspace{-6pt}
@@ -347,7 +354,7 @@ When running on the 4-thread ARM Cortex-A72 CPU on the edge hardware (Raspberry 
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=0.85\columnwidth]{fig_latency_breakdown.pdf}
+\includegraphics[width=0.70\columnwidth]{fig_latency_breakdown.pdf}
 \caption{Execution latency component breakdown across the 160.2~ms local CPU retrieval pipeline, illustrating the dominant cross-encoder reranking phase.}
 \label{fig:latency_breakdown}
 \vspace{-6pt}
@@ -371,8 +378,8 @@ The authors express their sincere gratitude to our research supervisor, Dr.~Rama
 
 \bibliographystyle{IEEEtran}
 \begin{thebibliography}{00}
-\fontsize{7.4pt}{8.4pt}\selectfont
-\setlength{\itemsep}{0.5pt}
+\fontsize{6.6pt}{7.6pt}\selectfont
+\setlength{\itemsep}{0pt plus 0.2pt minus 0.1pt}
 \setlength{\parskip}{0pt}
 \setlength{\parsep}{0pt}
 
